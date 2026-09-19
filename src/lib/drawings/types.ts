@@ -12,8 +12,8 @@ export interface Drawing {
   /** anchor points: hline: [p], ray/text/marker: [p], line/arrow/rect: [p1, p2] */
   points: PricePoint[];
   color: string;
-  label?: string;
-  extendRight?: boolean;
+  label?: string | undefined;
+  extendRight?: boolean | undefined;
   /** UTC replay time when the drawing was created — for honest review later */
   createdAtReplayTime: number;
 }
