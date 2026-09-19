@@ -68,12 +68,12 @@ class MockMarketDataProvider implements MarketDataProvider {
     while (this.dayOpenCache.length <= dayIndex) {
       const i = this.dayOpenCache.length;
       const rnd = mulberry32(1337 + i * 7919);
-      const prev = this.dayOpenCache[i - 1];
+      const prev = this.dayOpenCache[i - 1] ?? BASE_PRICE;
       const drift = 6 + Math.sin(i / 23) * 25; // slow regime
       const next = prev + drift + gauss(rnd) * 180;
       this.dayOpenCache.push(Math.max(25000, next));
     }
-    return this.dayOpenCache[dayIndex];
+    return this.dayOpenCache[dayIndex] ?? BASE_PRICE;
   }
 
   private genDay(dayStart: number): Candle[] {
