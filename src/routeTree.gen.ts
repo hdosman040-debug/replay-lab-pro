@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BacktestRouteImport } from './routes/backtest'
 import { Route as JournalRouteImport } from './routes/journal'
+import { Route as StatisticsRouteImport } from './routes/statistics'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,44 @@ const JournalRoute = JournalRouteImport.update({
   path: '/journal',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StatisticsRoute = StatisticsRouteImport.update({
+  id: '/statistics',
+  path: '/statistics',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/backtest': typeof BacktestRoute
   '/journal': typeof JournalRoute
+  '/statistics': typeof StatisticsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/backtest': typeof BacktestRoute
   '/journal': typeof JournalRoute
+  '/statistics': typeof StatisticsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/backtest': typeof BacktestRoute
   '/journal': typeof JournalRoute
+  '/statistics': typeof StatisticsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/backtest' | '/journal'
+  fullPaths: '/' | '/backtest' | '/journal' | '/statistics'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/backtest' | '/journal'
-  id: '__root__' | '/' | '/backtest' | '/journal'
+  to: '/' | '/backtest' | '/journal' | '/statistics'
+  id: '__root__' | '/' | '/backtest' | '/journal' | '/statistics'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BacktestRoute: typeof BacktestRoute
   JournalRoute: typeof JournalRoute
+  StatisticsRoute: typeof StatisticsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +92,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JournalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/statistics': {
+      id: '/statistics'
+      path: '/statistics'
+      fullPath: '/statistics'
+      preLoaderRoute: typeof StatisticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BacktestRoute: BacktestRoute,
   JournalRoute: JournalRoute,
+  StatisticsRoute: StatisticsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
