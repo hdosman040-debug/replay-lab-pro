@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BacktestRouteImport } from './routes/backtest'
+import { Route as DataRouteImport } from './routes/data'
 import { Route as JournalRouteImport } from './routes/journal'
 import { Route as StatisticsRouteImport } from './routes/statistics'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const BacktestRoute = BacktestRouteImport.update({
   id: '/backtest',
   path: '/backtest',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DataRoute = DataRouteImport.update({
+  id: '/data',
+  path: '/data',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JournalRoute = JournalRouteImport.update({
@@ -38,12 +44,14 @@ const StatisticsRoute = StatisticsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/backtest': typeof BacktestRoute
+  '/data': typeof DataRoute
   '/journal': typeof JournalRoute
   '/statistics': typeof StatisticsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/backtest': typeof BacktestRoute
+  '/data': typeof DataRoute
   '/journal': typeof JournalRoute
   '/statistics': typeof StatisticsRoute
 }
@@ -51,20 +59,22 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/backtest': typeof BacktestRoute
+  '/data': typeof DataRoute
   '/journal': typeof JournalRoute
   '/statistics': typeof StatisticsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/backtest' | '/journal' | '/statistics'
+  fullPaths: '/' | '/backtest' | '/data' | '/journal' | '/statistics'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/backtest' | '/journal' | '/statistics'
-  id: '__root__' | '/' | '/backtest' | '/journal' | '/statistics'
+  to: '/' | '/backtest' | '/data' | '/journal' | '/statistics'
+  id: '__root__' | '/' | '/backtest' | '/data' | '/journal' | '/statistics'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BacktestRoute: typeof BacktestRoute
+  DataRoute: typeof DataRoute
   JournalRoute: typeof JournalRoute
   StatisticsRoute: typeof StatisticsRoute
 }
@@ -83,6 +93,13 @@ declare module '@tanstack/react-router' {
       path: '/backtest'
       fullPath: '/backtest'
       preLoaderRoute: typeof BacktestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/data': {
+      id: '/data'
+      path: '/data'
+      fullPath: '/data'
+      preLoaderRoute: typeof DataRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/journal': {
@@ -105,6 +122,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BacktestRoute: BacktestRoute,
+  DataRoute: DataRoute,
   JournalRoute: JournalRoute,
   StatisticsRoute: StatisticsRoute,
 }
