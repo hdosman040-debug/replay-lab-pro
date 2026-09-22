@@ -86,13 +86,14 @@ export function CandleChart({
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const bg = cssVar("--surface");
-    const text = cssVar("--muted-foreground");
-    const grid = cssVar("--chart-grid");
-    const border = cssVar("--border");
-    const bull = cssVar("--bull");
-    const bear = cssVar("--bear");
-    const cross = cssVar("--foreground");
+    const bg = cssVar("--surface", "#14161a");
+    const text = cssVar("--muted-foreground", "#8b93a1");
+    const grid = cssVar("--chart-grid", "#22262d");
+    const border = cssVar("--border", "#2a2f38");
+    const bull = cssVar("--bull", "#2fbf94");
+    const bear = cssVar("--bear", "#f2555a");
+    const cross = cssVar("--foreground", "#e6e9ef");
+    const surface3 = cssVar("--surface-3", "#2a2f38");
 
     const chart = createChart(el, {
       autoSize: true,
