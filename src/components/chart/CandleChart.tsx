@@ -23,8 +23,42 @@ interface Props {
   children?: ReactNode;
 }
 
-function cssVar(name: string) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+/**
+ * lightweight-charts has its own colour parser that only understands
+ * hex / rgb(a) / hsl(a) / named colours. Our design tokens are `oklch(...)`,
+ * so every value must be rasterised to rgba() before it reaches the chart.
+ */
+let paintCtx: CanvasRenderingContext2D | null = null;
+function toRgb(value: string, fallback: string): string {
+  if (!value) return fallback;
+  if (/^(#|rgb|hsl)/i.test(value)) return value;
+  try {
+    if (!paintCtx) {
+      const cv = document.createElement("canvas");
+      cv.width = 1;
+      cv.height = 1;
+      paintCtx = cv.getContext("2d", { willReadFrequently: true });
+    }
+    if (!paintCtx) return fallback;
+    paintCtx.clearRect(0, 0, 1, 1);
+    paintCtx.fillStyle = "#000";
+    paintCtx.fillStyle = value;
+    if (paintCtx.fillStyle === "#000" && value !== "#000") {
+      // browser rejected the value outright
+      return fallback;
+    }
+    paintCtx.clearRect(0, 0, 1, 1);
+    paintCtx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = paintCtx.getImageData(0, 0, 1, 1).data;
+    return `rgba(${r}, ${g}, ${b}, ${((a ?? 255) / 255).toFixed(3)})`;
+  } catch {
+    return fallback;
+  }
+}
+
+function cssVar(name: string, fallback = "#808080") {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return toRgb(raw, fallback);
 }
 
 export function CandleChart({
@@ -52,13 +86,14 @@ export function CandleChart({
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const bg = cssVar("--surface");
-    const text = cssVar("--muted-foreground");
-    const grid = cssVar("--chart-grid");
-    const border = cssVar("--border");
-    const bull = cssVar("--bull");
-    const bear = cssVar("--bear");
-    const cross = cssVar("--foreground");
+    const bg = cssVar("--surface", "#14161a");
+    const text = cssVar("--muted-foreground", "#8b93a1");
+    const grid = cssVar("--chart-grid", "#22262d");
+    const border = cssVar("--border", "#2a2f38");
+    const bull = cssVar("--bull", "#2fbf94");
+    const bear = cssVar("--bear", "#f2555a");
+    const cross = cssVar("--foreground", "#e6e9ef");
+    const surface3 = cssVar("--surface-3", "#2a2f38");
 
     const chart = createChart(el, {
       autoSize: true,
@@ -94,8 +129,8 @@ export function CandleChart({
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: cross, width: 1, style: 3, labelBackgroundColor: cssVar("--surface-3") },
-        horzLine: { color: cross, width: 1, style: 3, labelBackgroundColor: cssVar("--surface-3") },
+        vertLine: { color: cross, width: 1, style: 3, labelBackgroundColor: surface3 },
+        horzLine: { color: cross, width: 1, style: 3, labelBackgroundColor: surface3 },
       },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
       handleScale: {
@@ -273,8 +308,12 @@ export function CandleChart({
   return (
     <ChartContext.Provider value={{ coords, version }}>
       <div className="relative h-full w-full overflow-hidden bg-surface">
-        <div ref={containerRef} className="absolute inset-0" />
-        {children}
+        <div ref={containerRef} className="absolute inset-0 z-0" />
+        {/* Overlays must sit above the chart canvases; children opt back into
+            pointer events individually (drawing overlay, trade levels). */}
+        <div className="absolute inset-0 z-20" style={{ pointerEvents: "none" }}>
+          {children}
+        </div>
       </div>
     </ChartContext.Provider>
   );
