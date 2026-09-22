@@ -23,8 +23,42 @@ interface Props {
   children?: ReactNode;
 }
 
-function cssVar(name: string) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+/**
+ * lightweight-charts has its own colour parser that only understands
+ * hex / rgb(a) / hsl(a) / named colours. Our design tokens are `oklch(...)`,
+ * so every value must be rasterised to rgba() before it reaches the chart.
+ */
+let paintCtx: CanvasRenderingContext2D | null = null;
+function toRgb(value: string, fallback: string): string {
+  if (!value) return fallback;
+  if (/^(#|rgb|hsl)/i.test(value)) return value;
+  try {
+    if (!paintCtx) {
+      const cv = document.createElement("canvas");
+      cv.width = 1;
+      cv.height = 1;
+      paintCtx = cv.getContext("2d", { willReadFrequently: true });
+    }
+    if (!paintCtx) return fallback;
+    paintCtx.clearRect(0, 0, 1, 1);
+    paintCtx.fillStyle = "#000";
+    paintCtx.fillStyle = value;
+    if (paintCtx.fillStyle === "#000" && value !== "#000") {
+      // browser rejected the value outright
+      return fallback;
+    }
+    paintCtx.clearRect(0, 0, 1, 1);
+    paintCtx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = paintCtx.getImageData(0, 0, 1, 1).data;
+    return `rgba(${r}, ${g}, ${b}, ${((a ?? 255) / 255).toFixed(3)})`;
+  } catch {
+    return fallback;
+  }
+}
+
+function cssVar(name: string, fallback = "#808080") {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return toRgb(raw, fallback);
 }
 
 export function CandleChart({
