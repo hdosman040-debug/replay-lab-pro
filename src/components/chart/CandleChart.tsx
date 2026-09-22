@@ -129,8 +129,8 @@ export function CandleChart({
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: cross, width: 1, style: 3, labelBackgroundColor: cssVar("--surface-3") },
-        horzLine: { color: cross, width: 1, style: 3, labelBackgroundColor: cssVar("--surface-3") },
+        vertLine: { color: cross, width: 1, style: 3, labelBackgroundColor: surface3 },
+        horzLine: { color: cross, width: 1, style: 3, labelBackgroundColor: surface3 },
       },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
       handleScale: {
