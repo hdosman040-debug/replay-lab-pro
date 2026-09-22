@@ -308,8 +308,12 @@ export function CandleChart({
   return (
     <ChartContext.Provider value={{ coords, version }}>
       <div className="relative h-full w-full overflow-hidden bg-surface">
-        <div ref={containerRef} className="absolute inset-0" />
-        {children}
+        <div ref={containerRef} className="absolute inset-0 z-0" />
+        {/* Overlays must sit above the chart canvases; children opt back into
+            pointer events individually (drawing overlay, trade levels). */}
+        <div className="absolute inset-0 z-20" style={{ pointerEvents: "none" }}>
+          {children}
+        </div>
       </div>
     </ChartContext.Provider>
   );
