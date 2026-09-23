@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { loadReplayView, advanceCandles, type ReplayView } from "./engine";
+import { advanceCandles, canDelta, loadReplayDelta, loadReplayView, type ReplayView } from "./engine";
 import type { ReplaySession } from "@/lib/backtest/types";
 import { getMarketDataProvider } from "@/lib/market";
 import type { Candle, Timeframe } from "@/lib/market/types";
@@ -8,27 +8,38 @@ import type { Candle, Timeframe } from "@/lib/market/types";
 /**
  * Binds a replay session to market data. The session's `currentTime` is the
  * replay clock — nothing at or after it is ever loaded for display.
+ *
+ * Stepping forward on the same symbol/timeframe only fetches the new candles
+ * (delta load); rewinding, jumping or switching timeframe does a full reload.
  */
-export function useReplay(
-  session: ReplaySession | undefined,
-  viewTf: Timeframe,
-  lookback: number,
-) {
+export function useReplay(session: ReplaySession | undefined, viewTf: Timeframe, lookback: number) {
   const [view, setView] = useState<ReplayView | null>(null);
   const [loading, setLoading] = useState(false);
+  const viewRef = useRef<ReplayView | null>(null);
   const symbol = session?.symbol;
   const horizon = session?.currentTime ?? 0;
 
   useEffect(() => {
     if (!symbol || !horizon) {
+      viewRef.current = null;
       setView(null);
       return;
     }
     let cancelled = false;
-    setLoading(true);
-    loadReplayView(getMarketDataProvider(), symbol, viewTf, horizon, lookback)
+    const provider = getMarketDataProvider();
+    const prev = viewRef.current;
+    const delta = canDelta(prev, symbol, viewTf, horizon);
+    // Only show the loading state for full reloads; deltas are near-instant and
+    // flashing "loading…" on every replay step is noise.
+    if (!delta) setLoading(true);
+    const task = delta
+      ? loadReplayDelta(provider, prev, horizon)
+      : loadReplayView(provider, symbol, viewTf, horizon, lookback);
+    task
       .then((v) => {
-        if (!cancelled) setView(v);
+        if (cancelled) return;
+        viewRef.current = v;
+        setView(v);
       })
       .catch(() => {
         if (!cancelled) setView(null);
@@ -52,11 +63,7 @@ export function useReplay(
 }
 
 /** Advance helper that is safe to call repeatedly (no overlapping requests). */
-export function useAdvance(
-  session: ReplaySession | undefined,
-  viewTf: Timeframe,
-  onTime: (t: number) => void,
-) {
+export function useAdvance(session: ReplaySession | undefined, viewTf: Timeframe, onTime: (t: number) => void) {
   const busy = useRef(false);
   const ref = useRef({ session, viewTf, onTime });
   ref.current = { session, viewTf, onTime };
