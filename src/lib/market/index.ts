@@ -1,10 +1,9 @@
 import { mockMarketDataProvider } from "./mockProvider";
+import { supabaseMarketDataProvider } from "./supabaseProvider";
 import type { MarketDataProvider } from "./provider";
 
-/**
- * Single access point for market data. Swap the implementation here
- * (e.g. SupabaseMarketDataProvider) without touching the replay engine or UI.
- */
+export type { MarketDataProvider } from "./provider";
+
 let provider: MarketDataProvider = mockMarketDataProvider;
 
 export function getMarketDataProvider(): MarketDataProvider {
@@ -15,5 +14,12 @@ export function setMarketDataProvider(p: MarketDataProvider) {
   provider = p;
 }
 
+export function useSupabaseMarketDataProvider() {
+  provider = supabaseMarketDataProvider;
+}
+
+export function useMockMarketDataProvider() {
+  provider = mockMarketDataProvider;
+}
+
 export * from "./types";
-export type { MarketDataProvider } from "./provider";

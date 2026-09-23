@@ -19,6 +19,10 @@ import { getTool } from "@/lib/drawings/types";
 import { TF_SECONDS, TIMEFRAMES, type Timeframe } from "@/lib/market/types";
 import { SPEEDS } from "@/lib/replay/engine";
 import { useAdvance, useReplay } from "@/lib/replay/useReplay";
+import {
+  useMockMarketDataProvider,
+  useSupabaseMarketDataProvider,
+} from "@/lib/market";
 import { useStoresHydrated } from "@/lib/store/hydrate";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { uid, useActiveSession, useSessionStore } from "@/lib/store/sessionStore";
@@ -55,7 +59,22 @@ function Workspace() {
   const tz = settings.sessionTimezone;
 
   const viewTf: Timeframe = ui.viewTimeframe ?? session?.timeframe ?? settings.defaultTimeframe;
-  const { candles, loading, lastCandle } = useReplay(session, viewTf, settings.lookbackCandles);
+  const { candles, loading, lastCandle } = useReplay(
+    session,
+    viewTf,
+    settings.lookbackCandles,
+    settings.dataProvider,
+  );
+
+  useEffect(() => {
+    if (settings.dataProvider === "supabase") {
+      useSupabaseMarketDataProvider();
+    } else {
+      useMockMarketDataProvider();
+    }
+  }, [settings.dataProvider]);
+
+
   const advance = useAdvance(session, viewTf, (t) => store.patchActive({ currentTime: t }));
 
   const [panelOpen, setPanelOpen] = useState(false);

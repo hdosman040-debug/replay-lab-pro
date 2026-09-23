@@ -26,6 +26,8 @@ function DataPage() {
   const [sets, setSets] = useState<DatasetInfo[] | null>(null);
 
   useEffect(() => {
+    if (!ready) return;
+
     let alive = true;
     getMarketDataProvider()
       .listDatasets()
@@ -34,7 +36,7 @@ function DataPage() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [ready]);
 
   const provider = getMarketDataProvider().id;
 

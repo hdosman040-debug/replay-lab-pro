@@ -122,7 +122,33 @@ function SettingsPage() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="eyebrow">Session timezone & windows</h2>
+            <section className="space-y-2">
+          <h2 className="eyebrow">Market Data</h2>
+
+          <Field label="Data provider">
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                className="chip"
+                data-active={settings.dataProvider === "mock"}
+                onClick={() => update({ dataProvider: "mock" })}
+              >
+                Mock
+              </button>
+
+              <button
+                type="button"
+                className="chip"
+                data-active={settings.dataProvider === "supabase"}
+                onClick={() => update({ dataProvider: "supabase" })}
+              >
+                Supabase
+              </button>
+            </div>
+          </Field>
+        </section>
+
+        <h2 className="eyebrow">Session timezone & windows</h2>
             <Field label="Timezone (never your device clock)">
               <select
                 className="panel-input"
