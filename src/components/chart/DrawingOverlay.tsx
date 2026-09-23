@@ -86,12 +86,26 @@ export function DrawingOverlay(props: Props) {
         const dx = x - d.startX;
         const dy = y - d.startY;
         if (!d.moved && Math.hypot(dx, dy) < 3) return;
+
+        // Move the whole drawing as one unit.
+        // Calculate one time shift for all points so a rectangle cannot
+        // collapse when its right edge reaches the replay cursor.
+        const startPointerTime = c.xToTime(d.startX);
+        const currentPointerTime = c.xToTime(x);
+        const requestedTimeShift = currentPointerTime - startPointerTime;
+
+        const latestPointTime = Math.max(...d.startPoints.map((pt) => pt.time));
+        const maxAllowedShift = p.replayTime - latestPointTime;
+        const timeShift = Math.min(requestedTimeShift, maxAllowedShift);
+
         const pts = d.startPoints.map((pt) => {
-          const px = c.timeToX(pt.time) ?? 0;
           const py = c.priceToY(pt.price) ?? 0;
-          const t = Math.min(p.replayTime, c.xToTime(px + dx));
-          return { time: t, price: Math.round((c.yToPrice(py + dy) ?? pt.price) * 10) / 10 };
+          return {
+            time: pt.time + timeShift,
+            price: Math.round((c.yToPrice(py + dy) ?? pt.price) * 10) / 10,
+          };
         });
+
         p.onUpdate(d.id, { points: pts }, false);
         if (!d.moved) setDrag({ ...d, moved: true });
       } else if (d.type === "point") {
@@ -338,7 +352,9 @@ function Shape({
       if (!p1 || p1.x === null || p1.y === null) return null;
       const x = Math.min(p0.x, p1.x);
       const y = Math.min(p0.y, p1.y);
-      const w = d.extendRight ? Math.max(0, width - x) : Math.abs(p1.x - p0.x);
+      // Rectangles are finite zones. Never stretch them to the chart edge.
+      // This keeps FVG/OB/POI boundaries tied to their two anchor points.
+      const w = Math.abs(p1.x - p0.x);
       const h = Math.abs(p1.y - p0.y);
       return (
         <g>

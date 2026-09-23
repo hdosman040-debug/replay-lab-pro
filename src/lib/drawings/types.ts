@@ -60,9 +60,9 @@ export const TOOLS: ToolDef[] = [
   { id: "ll", label: "Lower low", short: "LL", kind: "marker", group: "structure", color: STR, defaultLabel: "LL", markerDir: "down" },
   { id: "mss", label: "Market structure shift", short: "MSS", kind: "line", group: "structure", color: PA, defaultLabel: "MSS" },
   // POI — zones
-  { id: "fvg", label: "Fair value gap", short: "FVG", kind: "rect", group: "poi", color: POI, defaultLabel: "FVG", extendRight: true },
-  { id: "ob", label: "Order block", short: "OB", kind: "rect", group: "poi", color: POI, defaultLabel: "OB", extendRight: true },
-  { id: "poi", label: "Custom POI", short: "POI", kind: "rect", group: "poi", color: POI, defaultLabel: "POI", extendRight: true },
+  { id: "fvg", label: "Fair value gap", short: "FVG", kind: "rect", group: "poi", color: POI, defaultLabel: "FVG", extendRight: false },
+  { id: "ob", label: "Order block", short: "OB", kind: "rect", group: "poi", color: POI, defaultLabel: "OB", extendRight: false },
+  { id: "poi", label: "Custom POI", short: "POI", kind: "rect", group: "poi", color: POI, defaultLabel: "POI", extendRight: false },
   // Price action
   { id: "sweep", label: "Liquidity sweep", short: "SWP", kind: "marker", group: "pa", color: PA, defaultLabel: "Sweep", markerDir: "up" },
   { id: "disp", label: "Displacement", short: "DSP", kind: "rect", group: "pa", color: PA, defaultLabel: "Displacement" },
