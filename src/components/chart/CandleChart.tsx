@@ -203,30 +203,28 @@ export function CandleChart({
     });
     const first = candles[0];
     const prevFirst = prev[0];
-    const incremental =
-      prev.length > 0 &&
-      first &&
-      prevFirst &&
-      first.time === prevFirst.time &&
-      candles.length >= prev.length &&
-      candles.length - prev.length <= 3;
-    if (incremental) {
-      const start = Math.max(0, prev.length - 2);
-      for (let i = start; i < candles.length; i++) {
-        const c = candles[i];
-        if (c) series.update(toBar(c));
-      }
-    } else {
-      const keepRange = chart.timeScale().getVisibleLogicalRange();
-      series.setData(candles.map(toBar));
-      if (prev.length === 0) {
-        chart.timeScale().scrollToPosition(6, false);
-      } else if (keepRange && first && prevFirst) {
-        // prepended history: shift the range so the view stays put
-        const shift = prev.length && first.time < prevFirst.time ? countBefore(candles, prevFirst.time) : 0;
-        if (shift > 0) {
-          chart.timeScale().setVisibleLogicalRange({ from: keepRange.from + shift, to: keepRange.to + shift });
-        }
+
+    // Replay correctness comes first. Rebuild the series from the complete
+    // causal candle set instead of using incremental series.update() calls.
+    // This avoids invalid chronological updates when a forming candle becomes
+    // completed at a replay boundary.
+    const keepRange = chart.timeScale().getVisibleLogicalRange();
+    series.setData(candles.map(toBar));
+
+    if (prev.length === 0) {
+      chart.timeScale().scrollToPosition(6, false);
+    } else if (keepRange && first && prevFirst) {
+      // prepended history: shift the range so the view stays put
+      const shift =
+        prev.length && first.time < prevFirst.time
+          ? countBefore(candles, prevFirst.time)
+          : 0;
+
+      if (shift > 0) {
+        chart.timeScale().setVisibleLogicalRange({
+          from: keepRange.from + shift,
+          to: keepRange.to + shift,
+        });
       }
     }
     prevRef.current = candles;

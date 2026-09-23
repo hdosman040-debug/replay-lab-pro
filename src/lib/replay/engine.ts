@@ -91,15 +91,33 @@ export async function loadReplayDelta(
   const from = last ? last.time + tfs : bucket;
 
   let completed = prev.completed;
-  if (bucket > from) {
-    const fresh = (await provider.getCandles({ symbol, timeframe: tf, from, to: bucket })).filter(
+
+  if (bucket >= from) {
+    const fresh = (
+      await provider.getCandles({
+        symbol,
+        timeframe: tf,
+        from,
+        to: bucket + tfs,
+      })
+    ).filter(
       (c) => c.time >= from && c.time + tfs <= horizon,
     );
-    if (fresh.length) completed = prev.completed.concat(fresh);
+
+    if (fresh.length) {
+      completed = prev.completed.concat(fresh);
+    }
   }
 
   const m1 =
-    horizon > bucket ? await provider.getCandles({ symbol, timeframe: "M1", from: bucket, to: horizon }) : [];
+    horizon > bucket
+      ? await provider.getCandles({
+          symbol,
+          timeframe: "M1",
+          from: bucket,
+          to: horizon,
+        })
+      : [];
 
   return {
     completed,

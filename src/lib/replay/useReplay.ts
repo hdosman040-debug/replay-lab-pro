@@ -12,7 +12,12 @@ import type { Candle, Timeframe } from "@/lib/market/types";
  * Stepping forward on the same symbol/timeframe only fetches the new candles
  * (delta load); rewinding, jumping or switching timeframe does a full reload.
  */
-export function useReplay(session: ReplaySession | undefined, viewTf: Timeframe, lookback: number) {
+export function useReplay(
+  session: ReplaySession | undefined,
+  viewTf: Timeframe,
+  lookback: number,
+  dataProvider: "mock" | "supabase" = "mock",
+) {
   const [view, setView] = useState<ReplayView | null>(null);
   const [loading, setLoading] = useState(false);
   const viewRef = useRef<ReplayView | null>(null);
@@ -50,11 +55,27 @@ export function useReplay(session: ReplaySession | undefined, viewTf: Timeframe,
     return () => {
       cancelled = true;
     };
-  }, [symbol, viewTf, horizon, lookback]);
+  }, [symbol, viewTf, horizon, lookback, dataProvider]);
 
   const candles = useMemo<Candle[]>(() => {
     if (!view) return [];
-    return view.forming ? [...view.completed, view.forming] : view.completed;
+
+    const completed = view.completed;
+
+    if (!view.forming) {
+      return completed;
+    }
+
+    const lastCompleted = completed[completed.length - 1];
+
+    // Never expose the same timestamp twice.
+    // At an exact timeframe boundary, the candle that was previously
+    // forming may now also appear in completed.
+    if (lastCompleted && lastCompleted.time === view.forming.time) {
+      return completed;
+    }
+
+    return [...completed, view.forming];
   }, [view]);
 
   const last = candles.length ? candles[candles.length - 1]! : null;
@@ -73,8 +94,35 @@ export function useAdvance(session: ReplaySession | undefined, viewTf: Timeframe
     if (!s || busy.current) return;
     busy.current = true;
     try {
-      const t = await advanceCandles(getMarketDataProvider(), s.symbol, tf, s.currentTime, n);
+      const provider = getMarketDataProvider();
+      console.log("[Replay Advance] provider:", provider.id);
+      console.log("[Replay Advance] request:", {
+        symbol: s.symbol,
+        timeframe: tf,
+        horizon: s.currentTime,
+        n,
+      });
+
+      const t = await advanceCandles(
+        provider,
+        s.symbol,
+        tf,
+        s.currentTime,
+        n,
+      );
+
+      console.log("[Replay Advance] new horizon:", t);
       cb(t);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? `${error.name}: ${error.message}\\n\\n${error.stack ?? ""}`
+          : String(error);
+
+      window.alert(`REPLAY +1 ERROR\\n\\n${message}`);
+
+      console.error("[Replay Advance] FAILED:", error);
+      throw error;
     } finally {
       busy.current = false;
     }
