@@ -2,10 +2,6 @@ import { useEffect, useState } from "react";
 import { useJournalStore } from "./journalStore";
 import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
-import {
-  useMockMarketDataProvider,
-  useSupabaseMarketDataProvider,
-} from "@/lib/market";
 
 let hydrated = false;
 
@@ -24,14 +20,6 @@ export function useStoresHydrated(): boolean {
       useJournalStore.persist.rehydrate(),
       useSettingsStore.persist.rehydrate(),
     ]).then(() => {
-      const provider = useSettingsStore.getState().settings.dataProvider;
-
-      if (provider === "supabase") {
-        useSupabaseMarketDataProvider();
-      } else {
-        useMockMarketDataProvider();
-      }
-
       hydrated = true;
       setReady(true);
     });

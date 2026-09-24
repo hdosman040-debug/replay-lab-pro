@@ -232,14 +232,19 @@ export function RecordResultSheet({
   onSave: (record: JournalRecord) => void;
 }) {
   const trade = session.trade;
-  const [result, setResult] = useState<TradeResult>("win");
+  const [result, setResult] = useState<TradeResult | null>(null);
   const [exit, setExit] = useState<string>(trade ? String(trade.takeProfit) : "");
   const [mistakes, setMistakes] = useState("");
   const [notes, setNotes] = useState("");
   if (!trade) return null;
 
   const exitPrice = Number(exit || 0);
-  const resultR = result === "breakeven" ? 0 : resultRAt(trade, exitPrice);
+  const resultR =
+    result === null
+      ? 0
+      : result === "breakeven"
+        ? 0
+        : resultRAt(trade, exitPrice);
 
   const pick = (r: TradeResult) => {
     setResult(r);
@@ -276,7 +281,10 @@ export function RecordResultSheet({
           type="button"
           className="touch-btn w-full font-semibold"
           style={{ backgroundColor: "var(--primary)", color: "var(--primary-foreground)" }}
-          onClick={() =>
+          disabled={result === null}
+          onClick={() => {
+            if (result === null) return;
+
             onSave({
               id: uid(),
               kind: "trade",
@@ -298,8 +306,8 @@ export function RecordResultSheet({
               notes,
               drawings: session.drawings,
               createdAt: Date.now(),
-            })
-          }
+            });
+          }}
         >
           Save to journal
         </button>

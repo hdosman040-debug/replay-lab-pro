@@ -188,12 +188,17 @@ export function CandleChart({
     };
   }, []);
 
-  // Feed data: append/update in place when possible so zoom/scroll survive.
+  // Feed the complete causal candle set to the chart.
+  // Replay advances trim candles from the left, so the newest candle
+  // must remain visible. History loading prepends candles, so that
+  // operation preserves the user's existing viewport.
   useEffect(() => {
     const series = seriesRef.current;
     const chart = chartRef.current;
     if (!series || !chart) return;
+
     const prev = prevRef.current;
+
     const toBar = (c: Candle) => ({
       time: c.time as UTCTimestamp,
       open: c.open,
@@ -201,24 +206,40 @@ export function CandleChart({
       low: c.low,
       close: c.close,
     });
+
+    const keepRange = chart.timeScale().getVisibleLogicalRange();
     const first = candles[0];
     const prevFirst = prev[0];
 
-    // Replay correctness comes first. Rebuild the series from the complete
-    // causal candle set instead of using incremental series.update() calls.
-    // This avoids invalid chronological updates when a forming candle becomes
-    // completed at a replay boundary.
-    const keepRange = chart.timeScale().getVisibleLogicalRange();
+    // Replay lookback trimming:
+    // the new first candle is later than the old first candle.
+    // Follow the newest candle instead of restoring a stale viewport.
+    const replayTrim =
+      prev.length > 0 &&
+      first !== undefined &&
+      prevFirst !== undefined &&
+      first.time > prevFirst.time;
+
+    // History was prepended:
+    // preserve the same candles on screen by shifting their logical
+    // positions to account for the newly inserted candles.
+    const historyPrepended =
+      prev.length > 0 &&
+      first !== undefined &&
+      prevFirst !== undefined &&
+      first.time < prevFirst.time;
+
     series.setData(candles.map(toBar));
 
     if (prev.length === 0) {
+      // Initial load.
       chart.timeScale().scrollToPosition(6, false);
-    } else if (keepRange && first && prevFirst) {
-      // prepended history: shift the range so the view stays put
-      const shift =
-        prev.length && first.time < prevFirst.time
-          ? countBefore(candles, prevFirst.time)
-          : 0;
+    } else if (replayTrim) {
+      // Replay is moving forward and the lookback window is sliding.
+      // Always keep the current/latest candle visible.
+      chart.timeScale().scrollToPosition(6, false);
+    } else if (historyPrepended && keepRange) {
+      const shift = countBefore(candles, prevFirst!.time);
 
       if (shift > 0) {
         chart.timeScale().setVisibleLogicalRange({
@@ -227,11 +248,16 @@ export function CandleChart({
         });
       }
     }
+
     prevRef.current = candles;
     setVersion((v) => v + 1);
+
     const w = chart.timeScale().width();
     const h = chart.paneSize().height;
-    if (w !== size.width || h !== size.height) setSize({ width: w, height: h });
+    if (w !== size.width || h !== size.height) {
+      setSize({ width: w, height: h });
+    }
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candles]);
 

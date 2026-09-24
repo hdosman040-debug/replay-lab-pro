@@ -17,7 +17,6 @@ export interface Settings {
   keepToolActive: boolean;
   lookbackCandles: number;
   traderName: string;
-  dataProvider: "mock" | "supabase";
 }
 
 interface SettingsState {
@@ -39,7 +38,6 @@ export const DEFAULT_SETTINGS: Settings = {
   keepToolActive: false,
   lookbackCandles: 300,
   traderName: "",
-  dataProvider: "mock",
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -53,10 +51,21 @@ export const useSettingsStore = create<SettingsState>()(
       name: "ict-terminal.settings.v1",
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
-      merge: (persisted, current) => ({
+      merge: (persisted, current) => {
+      const persistedSettings =
+        (persisted as Partial<SettingsState>)?.settings ?? {};
+
+      const safeSettings = Object.fromEntries(
+        Object.entries(persistedSettings).filter(
+          ([key]) => key !== "dataProvider",
+        ),
+      ) as Partial<Settings>;
+
+      return {
         ...current,
-        settings: { ...current.settings, ...((persisted as Partial<SettingsState>)?.settings ?? {}) },
-      }),
+        settings: { ...current.settings, ...safeSettings },
+      };
+    },
     },
   ),
 );

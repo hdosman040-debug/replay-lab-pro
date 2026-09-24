@@ -66,7 +66,6 @@ function Workspace() {
     session,
     viewTf,
     settings.lookbackCandles,
-    settings.dataProvider,
   );
 
   const advance = useAdvance(session, session?.timeframe ?? settings.defaultTimeframe, (t) => store.patchActive({ currentTime: t }));

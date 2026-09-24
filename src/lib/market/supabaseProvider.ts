@@ -177,7 +177,7 @@ async function listAvailableMonths(): Promise<AvailableMonth[]> {
     }
 
     const years = (yearEntries ?? [])
-      .filter((entry) => /^\\d{4}$/.test(entry.name))
+      .filter((entry) => /^\d{4}$/.test(entry.name))
       .map((entry) => Number(entry.name));
 
     const results = await Promise.all(
@@ -196,7 +196,7 @@ async function listAvailableMonths(): Promise<AvailableMonth[]> {
         }
 
         return (data ?? [])
-          .map((entry) => entry.name.match(/^(\\d{4})-(\\d{2})\\.csv$/))
+          .map((entry) => entry.name.match(/^(\d{4})-(\d{2})\.csv$/))
           .filter(
             (
               match,
@@ -331,11 +331,22 @@ class SupabaseMarketDataProviderImpl {
       return [];
     }
 
-    const m1 = await loadM1Range(range.from, range.to);
-
     if (range.timeframe === "M1") {
-      return m1;
+      return loadM1Range(range.from, range.to);
     }
+
+    // Higher-timeframe candles must be built from the complete
+    // lower-timeframe bucket containing `range.from`.
+    //
+    // Example:
+    //   M5 request from 10:07
+    //   M5 bucket starts at 10:05
+    //
+    // Load from 10:05 so the 10:05 candle can be constructed
+    // correctly, then filter the result back to the caller's
+    // requested [from, to) range below.
+    const aggregationFrom = floorToTf(range.from, range.timeframe);
+    const m1 = await loadM1Range(aggregationFrom, range.to);
 
     const aggregated = aggregateCandles(m1, range.timeframe);
     const tfSeconds = TF_SECONDS[range.timeframe];
@@ -364,21 +375,28 @@ class SupabaseMarketDataProviderImpl {
     const firstMonth = availableMonths[0];
     const lastMonth = availableMonths[availableMonths.length - 1];
 
-    const firstCandles = await loadMonth(
-      firstMonth.year,
-      firstMonth.month,
-    );
+    // The first and last months are independent, so load them
+    // in parallel to avoid unnecessary sequential downloads.
+    const firstKey = cacheKey(firstMonth.year, firstMonth.month);
+    const lastKey = cacheKey(lastMonth.year, lastMonth.month);
 
-    if (firstCandles.length === 0) {
-      return null;
+    let firstCandles;
+    let lastCandles;
+
+    if (firstKey === lastKey) {
+      firstCandles = await loadMonth(
+        firstMonth.year,
+        firstMonth.month,
+      );
+      lastCandles = firstCandles;
+    } else {
+      [firstCandles, lastCandles] = await Promise.all([
+        loadMonth(firstMonth.year, firstMonth.month),
+        loadMonth(lastMonth.year, lastMonth.month),
+      ]);
     }
 
-    const lastCandles = await loadMonth(
-      lastMonth.year,
-      lastMonth.month,
-    );
-
-    if (lastCandles.length === 0) {
+    if (firstCandles.length === 0 || lastCandles.length === 0) {
       return null;
     }
 

@@ -9,10 +9,7 @@ import {
   type ReplayView,
 } from "./engine";
 import type { ReplaySession } from "@/lib/backtest/types";
-import {
-  getMarketDataProvider,
-  setMarketDataProviderById,
-} from "@/lib/market";
+import { getMarketDataProvider } from "@/lib/market";
 import type { Candle, Timeframe } from "@/lib/market/types";
 
 const HISTORY_PAGE_SIZE = 300;
@@ -21,7 +18,6 @@ export function useReplay(
   session: ReplaySession | undefined,
   viewTf: Timeframe,
   lookback: number,
-  dataProvider: "mock" | "supabase" = "mock",
 ) {
   const [view, setView] = useState<ReplayView | null>(null);
 
@@ -51,7 +47,6 @@ export function useReplay(
    * A provider/timeframe/symbol change starts a fresh view.
    */
   useEffect(() => {
-    setMarketDataProviderById(dataProvider);
 
     if (!symbol || !horizon) {
       viewRef.current = null;
@@ -108,7 +103,7 @@ export function useReplay(
     return () => {
       cancelled = true;
     };
-  }, [symbol, viewTf, horizon, lookback, dataProvider]);
+  }, [symbol, viewTf, horizon, lookback]);
 
   /*
    * Load older candles when the chart approaches its left edge.
