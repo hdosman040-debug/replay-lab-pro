@@ -33,3 +33,6 @@ dist-ssr
 
 # Local market-data chunks — stored in Supabase Storage, not Git
 /data/
+
+# Netlify generated files
+.netlify/
