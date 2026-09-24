@@ -24,8 +24,8 @@ interface Props {
 
 type Drag =
   | { type: "create"; p1: PricePoint; p2: PricePoint; startX: number; startY: number }
-  | { type: "move"; id: string; startX: number; startY: number; startPoints: PricePoint[]; moved: boolean }
-  | { type: "point"; id: string; index: number; startPoints: PricePoint[] };
+  | { type: "move"; id: string; startX: number; startY: number; startPoints: PricePoint[]; currentPoints: PricePoint[]; moved: boolean }
+  | { type: "point"; id: string; index: number; startPoints: PricePoint[]; currentPoints: PricePoint[] };
 
 const SNAP_PX = 14;
 const sessionCache = new Map<string, SessionName>();
@@ -106,12 +106,18 @@ export function DrawingOverlay(props: Props) {
           };
         });
 
-        p.onUpdate(d.id, { points: pts }, false);
-        if (!d.moved) setDrag({ ...d, moved: true });
+        setDrag({
+          ...d,
+          currentPoints: pts,
+          moved: true,
+        });
       } else if (d.type === "point") {
-        const pts = d.startPoints.slice();
+        const pts = d.currentPoints.slice();
         pts[d.index] = toPoint(x, y, c, p.magnet);
-        p.onUpdate(d.id, { points: pts }, false);
+        setDrag({
+          ...d,
+          currentPoints: pts,
+        });
       }
     };
     const onUp = () => {
@@ -137,19 +143,25 @@ export function DrawingOverlay(props: Props) {
             p.onToolConsumed();
           }
         } else if (d.type === "move" || d.type === "point") {
-          const cur = p.drawings.find((x) => x.id === d.id);
-          if (cur) p.onUpdate(d.id, { points: cur.points }, true);
+          // The pre-drag snapshot was already recorded in beginMove/beginPoint.
+          // Persist only the final position; commit=false avoids another undo snapshot.
+          p.onUpdate(d.id, { points: d.currentPoints }, false);
         }
       }
       setDrag(null);
     };
+    const onCancel = () => {
+      // Cancelled pointer gestures must not persist a partial drag.
+      setDrag(null);
+    };
+
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("pointercancel", onCancel);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("pointercancel", onCancel);
     };
   }, [drag, localXY, toPoint]);
 
@@ -183,13 +195,27 @@ export function DrawingOverlay(props: Props) {
     props.onSelect(d.id);
     // snapshot for undo
     props.onUpdate(d.id, { points: d.points }, true);
-    setDrag({ type: "move", id: d.id, startX: x, startY: y, startPoints: d.points, moved: false });
+    setDrag({
+      type: "move",
+      id: d.id,
+      startX: x,
+      startY: y,
+      startPoints: d.points,
+      currentPoints: d.points,
+      moved: false,
+    });
   };
   const beginPoint = (e: RPointerEvent, d: Drawing, index: number) => {
     e.stopPropagation();
     e.preventDefault();
     props.onUpdate(d.id, { points: d.points }, true);
-    setDrag({ type: "point", id: d.id, index, startPoints: d.points });
+    setDrag({
+      type: "point",
+      id: d.id,
+      index,
+      startPoints: d.points,
+      currentPoints: d.points,
+    });
   };
 
   if (!coords) return null;
@@ -208,6 +234,15 @@ export function DrawingOverlay(props: Props) {
           extendRight: props.tool.extendRight,
           createdAtReplayTime: props.replayTime,
         }
+      : null;
+
+  const dragDrawing =
+    drag && (drag.type === "move" || drag.type === "point")
+      ? (() => {
+          const source = props.drawings.find((d) => d.id === drag.id);
+          if (!source) return null;
+          return { ...source, points: drag.currentPoints };
+        })()
       : null;
 
   return (
@@ -233,17 +268,30 @@ export function DrawingOverlay(props: Props) {
           showTradingWindow={props.showTradingWindow}
         />
       )}
-      {props.drawings.map((d) => (
+      {props.drawings.map((d) => {
+        if (dragDrawing?.id === d.id) return null;
+
+        return (
+          <Shape
+            key={d.id}
+            d={d}
+            coords={coords}
+            selected={d.id === props.selectedId}
+            interactive={!toolActive}
+            onDown={(e) => beginMove(e, d)}
+            onPointDown={(e, i) => beginPoint(e, d, i)}
+          />
+        );
+      })}
+
+      {dragDrawing && (
         <Shape
-          key={d.id}
-          d={d}
+          d={dragDrawing}
           coords={coords}
-          selected={d.id === props.selectedId}
-          interactive={!toolActive}
-          onDown={(e) => beginMove(e, d)}
-          onPointDown={(e, i) => beginPoint(e, d, i)}
+          selected={true}
+          interactive={false}
         />
-      ))}
+      )}
       {draft && <Shape d={draft} coords={coords} selected={false} interactive={false} />}
     </svg>
   );

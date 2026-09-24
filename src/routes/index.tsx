@@ -17,12 +17,9 @@ import { TradeLevels } from "@/components/workspace/TradeLevels";
 import type { TradePlan } from "@/lib/backtest/types";
 import { getTool } from "@/lib/drawings/types";
 import { TF_SECONDS, TIMEFRAMES, type Timeframe } from "@/lib/market/types";
-import { SPEEDS } from "@/lib/replay/engine";
+import { findActivation, SPEEDS } from "@/lib/replay/engine";
+import { getMarketDataProvider } from "@/lib/market";
 import { useAdvance, useReplay } from "@/lib/replay/useReplay";
-import {
-  useMockMarketDataProvider,
-  useSupabaseMarketDataProvider,
-} from "@/lib/market";
 import { useStoresHydrated } from "@/lib/store/hydrate";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { uid, useActiveSession, useSessionStore } from "@/lib/store/sessionStore";
@@ -59,23 +56,20 @@ function Workspace() {
   const tz = settings.sessionTimezone;
 
   const viewTf: Timeframe = ui.viewTimeframe ?? session?.timeframe ?? settings.defaultTimeframe;
-  const { candles, loading, lastCandle } = useReplay(
+  const {
+    candles,
+    loading,
+    historyLoading,
+    loadMoreHistory,
+    lastCandle,
+  } = useReplay(
     session,
     viewTf,
     settings.lookbackCandles,
     settings.dataProvider,
   );
 
-  useEffect(() => {
-    if (settings.dataProvider === "supabase") {
-      useSupabaseMarketDataProvider();
-    } else {
-      useMockMarketDataProvider();
-    }
-  }, [settings.dataProvider]);
-
-
-  const advance = useAdvance(session, viewTf, (t) => store.patchActive({ currentTime: t }));
+  const advance = useAdvance(session, session?.timeframe ?? settings.defaultTimeframe, (t) => store.patchActive({ currentTime: t }));
 
   const [panelOpen, setPanelOpen] = useState(false);
 
@@ -86,6 +80,55 @@ function Workspace() {
     const id = window.setInterval(() => void advance(1), Math.max(60, 1000 / speed));
     return () => window.clearInterval(id);
   }, [ui.playing, session?.id, session?.speed, advance, session]);
+
+  /*
+   * A planned trade activates only when replayed price actually reaches
+   * the manually defined entry. This does not detect setups or create
+   * trades automatically; it only advances planned -> active.
+   */
+  useEffect(() => {
+    const trade = session?.trade;
+    if (!session || !trade || trade.status !== "planned") return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const provider = getMarketDataProvider();
+        const activatedAt = await findActivation(
+          provider,
+          session.symbol,
+          trade,
+          trade.plannedAt,
+          session.currentTime,
+        );
+
+        if (cancelled || activatedAt === null) return;
+
+        const latest = useSessionStore.getState().sessions[session.id]?.trade;
+        if (!latest || latest.id !== trade.id || latest.status !== "planned") return;
+
+        useSessionStore.getState().setTrade({
+          ...latest,
+          status: "active",
+          activatedAt,
+        });
+      } catch (error) {
+        console.error("[Trade Activation] FAILED:", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    session?.id,
+    session?.symbol,
+    session?.currentTime,
+    session?.trade?.id,
+    session?.trade?.status,
+    session?.trade?.plannedAt,
+  ]);
 
   useEffect(() => {
     if (session && !ui.viewTimeframe) ui.setViewTimeframe(session.timeframe);
@@ -186,6 +229,7 @@ function Workspace() {
             barSeconds={TF_SECONDS[viewTf]}
             timezone={tz}
             onClickEmpty={() => ui.setSelectedDrawing(null)}
+            onVisibleRangeChange={loadMoreHistory}
             onCrosshairPrice={ui.setCrosshairPrice}
           >
             <DrawingOverlay

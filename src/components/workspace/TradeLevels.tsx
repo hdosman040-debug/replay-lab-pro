@@ -114,7 +114,7 @@ export function TradeLevels({ trade, onChange }: Props) {
               >
                 {text}
               </text>
-              <rect x={0} y={y - 22} width={width} height={44} fill="transparent" />
+              <rect x={4} y={y - 22} width={text.length * 7 + 18} height={44} fill="transparent" />
             </g>
           </g>
         );

@@ -14,6 +14,12 @@ export function setMarketDataProvider(p: MarketDataProvider) {
   provider = p;
 }
 
+export function setMarketDataProviderById(id: "mock" | "supabase") {
+  provider = id === "supabase"
+    ? supabaseMarketDataProvider
+    : mockMarketDataProvider;
+}
+
 export function useSupabaseMarketDataProvider() {
   provider = supabaseMarketDataProvider;
 }

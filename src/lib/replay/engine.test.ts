@@ -161,13 +161,49 @@ describe("delta loading", () => {
     for (let i = 0; i < 6; i++) {
       h = await advanceCandles(mockMarketDataProvider, SYM, tf, h, 1);
       expect(canDelta(delta, SYM, tf, h)).toBe(true);
-      delta = await loadReplayDelta(mockMarketDataProvider, delta, h);
+      delta = await loadReplayDelta(mockMarketDataProvider, delta, h, 100);
     }
     const full = await loadReplayView(mockMarketDataProvider, SYM, tf, h, 100);
     expect(delta.completed.at(-1)).toEqual(full.completed.at(-1));
     expect(delta.forming).toEqual(full.forming);
-    // the delta view keeps its history, so it has at least as many candles
-    expect(delta.completed.length).toBeGreaterThanOrEqual(full.completed.length - 1);
+    // Delta replay intentionally keeps only the requested lookback.
+    expect(delta.completed.length).toBeLessThanOrEqual(100);
+    expect(delta.completed.length).toBeGreaterThan(0);
+  });
+
+  it("keeps delta history bounded to the requested lookback", async () => {
+    const tf: Timeframe = "M5";
+    const lookback = 10;
+    let h = T0;
+
+    let view = await loadReplayView(
+      mockMarketDataProvider,
+      SYM,
+      tf,
+      h,
+      lookback,
+    );
+
+    for (let i = 0; i < 40; i++) {
+      h = await advanceCandles(
+        mockMarketDataProvider,
+        SYM,
+        tf,
+        h,
+        1,
+      );
+
+      view = await loadReplayDelta(
+        mockMarketDataProvider,
+        view,
+        h,
+        lookback,
+      );
+
+      expect(view.completed.length).toBeLessThanOrEqual(lookback);
+    }
+
+    expect(view.completed.length).toBe(lookback);
   });
 
   it("refuses to delta when rewinding or switching timeframe", async () => {

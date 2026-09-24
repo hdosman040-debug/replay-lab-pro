@@ -145,6 +145,89 @@ type MonthCacheEntry = {
  */
 const monthCache = new Map<string, MonthCacheEntry>();
 
+type AvailableMonth = {
+  year: number;
+  month: number;
+};
+
+let availableMonthsCache: AvailableMonth[] | null = null;
+let availableMonthsPromise: Promise<AvailableMonth[]> | null = null;
+
+async function listAvailableMonths(): Promise<AvailableMonth[]> {
+  if (availableMonthsCache) {
+    return availableMonthsCache;
+  }
+
+  if (availableMonthsPromise) {
+    return availableMonthsPromise;
+  }
+
+  availableMonthsPromise = (async () => {
+    const { data: yearEntries, error: yearError } = await supabase.storage
+      .from(BUCKET)
+      .list(ROOT, {
+        limit: 1000,
+        sortBy: { column: "name", order: "asc" },
+      });
+
+    if (yearError) {
+      throw new Error(
+        `Failed to list ${ROOT}: ${yearError.message}`,
+      );
+    }
+
+    const years = (yearEntries ?? [])
+      .filter((entry) => /^\\d{4}$/.test(entry.name))
+      .map((entry) => Number(entry.name));
+
+    const results = await Promise.all(
+      years.map(async (year) => {
+        const { data, error } = await supabase.storage
+          .from(BUCKET)
+          .list(`${ROOT}/${year}`, {
+            limit: 1000,
+            sortBy: { column: "name", order: "asc" },
+          });
+
+        if (error) {
+          throw new Error(
+            `Failed to list ${ROOT}/${year}: ${error.message}`,
+          );
+        }
+
+        return (data ?? [])
+          .map((entry) => entry.name.match(/^(\\d{4})-(\\d{2})\\.csv$/))
+          .filter(
+            (
+              match,
+            ): match is RegExpMatchArray => match !== null,
+          )
+          .map((match) => ({
+            year: Number(match[1]),
+            month: Number(match[2]),
+          }));
+      }),
+    );
+
+    const months = results
+      .flat()
+      .sort(
+        (a, b) =>
+          a.year - b.year ||
+          a.month - b.month,
+      );
+
+    availableMonthsCache = months;
+    return months;
+  })();
+
+  try {
+    return await availableMonthsPromise;
+  } finally {
+    availableMonthsPromise = null;
+  }
+}
+
 function cacheKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
@@ -192,6 +275,22 @@ async function loadMonth(year: number, month: number): Promise<Candle[]> {
     .download(path);
 
   if (error) {
+    // A month that has not been uploaded is an empty month, not a
+    // fatal replay error. Other Storage errors must still surface.
+    const statusCode = (error as { statusCode?: number | string }).statusCode;
+    const message = String(error.message ?? "").toLowerCase();
+    const isMissingObject =
+      statusCode === 404 ||
+      statusCode === "404" ||
+      message.includes("not found") ||
+      message.includes("object not found");
+
+    if (isMissingObject) {
+      const candles: Candle[] = [];
+      setCachedMonth(key, candles);
+      return candles;
+    }
+
     throw new Error(`Failed to download ${path}: ${error.message}`);
   }
 
@@ -256,21 +355,35 @@ class SupabaseMarketDataProviderImpl {
       return null;
     }
 
-    const firstMonth = await loadMonth(2016, 10);
+    const availableMonths = await listAvailableMonths();
 
-    if (firstMonth.length === 0) {
+    if (availableMonths.length === 0) {
       return null;
     }
 
-    const first = firstMonth[0].time;
+    const firstMonth = availableMonths[0];
+    const lastMonth = availableMonths[availableMonths.length - 1];
 
-    const lastMonth = await loadMonth(2025, 7);
+    const firstCandles = await loadMonth(
+      firstMonth.year,
+      firstMonth.month,
+    );
 
-    if (lastMonth.length === 0) {
+    if (firstCandles.length === 0) {
       return null;
     }
 
-    const lastM1 = lastMonth[lastMonth.length - 1].time;
+    const lastCandles = await loadMonth(
+      lastMonth.year,
+      lastMonth.month,
+    );
+
+    if (lastCandles.length === 0) {
+      return null;
+    }
+
+    const first = firstCandles[0].time;
+    const lastM1 = lastCandles[lastCandles.length - 1].time;
 
     if (timeframe === "M1") {
       return {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Sheet } from "@/components/layout/Sheet";
 import { Field, Stat } from "@/components/workspace/panels";
@@ -42,8 +42,8 @@ export function NewSessionSheet({
 }) {
   const [name, setName] = useState("");
   const [tf, setTf] = useState<Timeframe>(defaultTimeframe);
-  const [date, setDate] = useState("2024-03-05");
-  const [time, setTime] = useState("09:30");
+  const [date, setDate] = useState(() => fmtDateISO(Date.now() / 1000, tz));
+  const [time, setTime] = useState(() => fmtTimeISO(Date.now() / 1000, tz));
   const [speed, setSpeed] = useState(defaultSpeed);
 
   const start = parseDateTime(date, time, tz);
@@ -176,8 +176,15 @@ export function JumpToSheet({
   onJump: (t: number) => void;
   onReset: () => void;
 }) {
-  const [date, setDate] = useState(fmtDateISO(current, tz));
-  const [time, setTime] = useState(fmtTimeISO(current, tz));
+  const [date, setDate] = useState(() => fmtDateISO(current, tz));
+  const [time, setTime] = useState(() => fmtTimeISO(current, tz));
+
+  useEffect(() => {
+    if (!open) return;
+    setDate(fmtDateISO(current, tz));
+    setTime(fmtTimeISO(current, tz));
+  }, [open, current, tz]);
+
   const target = parseDateTime(date, time, tz);
   return (
     <Sheet open={open} title="Jump replay clock" onClose={onClose}>

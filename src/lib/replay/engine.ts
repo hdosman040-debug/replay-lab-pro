@@ -82,6 +82,7 @@ export async function loadReplayDelta(
   provider: MarketDataProvider,
   prev: ReplayView,
   horizon: number,
+  lookback: number,
 ): Promise<ReplayView> {
   const tf = prev.timeframe;
   const symbol = prev.symbol;
@@ -109,6 +110,18 @@ export async function loadReplayDelta(
     }
   }
 
+  // Keep the replay view bounded to the requested lookback.
+  // This is especially important on Android because delta replay can run
+  // for thousands of candles without triggering a full reload.
+  const boundedLookback = Math.max(1, Math.floor(lookback));
+  if (completed.length > boundedLookback) {
+    completed = completed.slice(-boundedLookback);
+  }
+
+  const loadedFrom = completed.length > 0
+    ? completed[0]!.time
+    : prev.loadedFrom;
+
   const m1 =
     horizon > bucket
       ? await provider.getCandles({
@@ -122,11 +135,50 @@ export async function loadReplayDelta(
   return {
     completed,
     forming: buildForming(m1, tf, horizon),
-    loadedFrom: prev.loadedFrom,
+    loadedFrom,
     horizon,
     timeframe: tf,
     symbol,
   };
+}
+
+
+/**
+ * Load an older page of candles for chart scrolling.
+ *
+ * This is separate from replay advancement: it only loads candles strictly
+ * before the currently visible oldest candle and never changes the replay
+ * horizon.
+ */
+export async function loadReplayHistoryBefore(
+  provider: MarketDataProvider,
+  prev: ReplayView,
+  before: number,
+  count: number,
+): Promise<Candle[]> {
+  const tf = prev.timeframe;
+  const tfs = TF_SECONDS[tf];
+
+  const safeCount = Math.max(1, Math.floor(count));
+  const span = safeCount * tfs;
+
+  // Extra padding helps around weekends/session gaps.
+  const from =
+    before -
+    span -
+    Math.max(2 * DAY, Math.ceil(span / (5 * DAY)) * 2 * DAY);
+
+  const older = await provider.getCandles({
+    symbol: prev.symbol,
+    timeframe: tf,
+    from,
+    to: before,
+  });
+
+  // Never return anything at/after the requested boundary.
+  return older
+    .filter((c) => c.time + tfs <= before)
+    .sort((a, b) => a.time - b.time);
 }
 
 /** Can `prev` be advanced to `horizon` with a delta load instead of a full reload? */
