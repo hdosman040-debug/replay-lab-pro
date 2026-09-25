@@ -305,6 +305,12 @@ export function RecordResultSheet({
               mistakes,
               notes,
               drawings: session.drawings,
+              ...(trade.beforeSnapshotId
+                ? { beforeSnapshotId: trade.beforeSnapshotId }
+                : {}),
+              ...(trade.afterSnapshotId
+                ? { afterSnapshotId: trade.afterSnapshotId }
+                : {}),
               createdAt: Date.now(),
             });
           }}

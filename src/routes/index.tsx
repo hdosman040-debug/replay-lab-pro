@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { CandleChart } from "@/components/chart/CandleChart";
+import { CandleChart, type CandleChartHandle } from "@/components/chart/CandleChart";
 import { DrawingOverlay } from "@/components/chart/DrawingOverlay";
 import { AppShell } from "@/components/layout/AppShell";
 import { AnalysisPanel, TradePanel, WorkflowPanel } from "@/components/workspace/panels";
@@ -14,15 +14,16 @@ import {
 } from "@/components/workspace/sheets";
 import { ToolStrip } from "@/components/workspace/ToolStrip";
 import { TradeLevels } from "@/components/workspace/TradeLevels";
-import type { TradePlan } from "@/lib/backtest/types";
+import { resultRAt, type TradePlan } from "@/lib/backtest/types";
 import { getTool } from "@/lib/drawings/types";
 import { TF_SECONDS, TIMEFRAMES, type Timeframe } from "@/lib/market/types";
-import { findActivation, SPEEDS } from "@/lib/replay/engine";
+import { findActivation, observeTrade, SPEEDS } from "@/lib/replay/engine";
 import { getMarketDataProvider } from "@/lib/market";
 import { useAdvance, useReplay } from "@/lib/replay/useReplay";
 import { useStoresHydrated } from "@/lib/store/hydrate";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { uid, useActiveSession, useSessionStore } from "@/lib/store/sessionStore";
+import { saveSnapshot } from "@/lib/snapshots/snapshotStore";
 import { useSettingsStore } from "@/lib/store/settingsStore";
 import { useUIStore } from "@/lib/store/uiStore";
 import { fmtDate, fmtTime, sessionAt, SESSION_LABEL } from "@/lib/time/ny";
@@ -48,6 +49,7 @@ export const Route = createFileRoute("/")({
 
 function Workspace() {
   const ready = useStoresHydrated();
+  const chartRef = useRef<CandleChartHandle>(null);
   const session = useActiveSession();
   const store = useSessionStore();
   const settings = useSettingsStore((s) => s.settings);
@@ -127,6 +129,150 @@ function Workspace() {
     session?.trade?.id,
     session?.trade?.status,
     session?.trade?.plannedAt,
+  ]);
+
+  /*
+   * Active trade resolution.
+   *
+   * This does NOT create or detect setups. The trader already created the
+   * manual trade plan. We only observe replayed M1 candles up to the current
+   * replay clock and close the trade when its SL or TP is actually touched.
+   */
+  useEffect(() => {
+    const trade = session?.trade;
+    if (!session || !trade || trade.status !== "active" || !trade.activatedAt) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const provider = getMarketDataProvider();
+        const observation = await observeTrade(
+          provider,
+          session.symbol,
+          trade,
+          trade.activatedAt!,
+          session.currentTime,
+        );
+
+        if (cancelled || !observation.hit || observation.hitAt === null) return;
+
+        const latest = useSessionStore.getState().sessions[session.id]?.trade;
+
+        if (
+          !latest ||
+          latest.id !== trade.id ||
+          latest.status !== "active" ||
+          latest.afterSnapshotId
+        ) {
+          return;
+        }
+
+        const exitPrice =
+          observation.hit === "tp"
+            ? latest.takeProfit
+            : latest.stopLoss;
+
+        useSessionStore.getState().setTrade({
+          ...latest,
+          status: "closed",
+          closedAt: observation.hitAt,
+          result: observation.hit === "tp" ? "win" : "loss",
+          exitPrice,
+          resultR: resultRAt(latest, exitPrice),
+          maxFavorableR: observation.mfeR,
+          maxAdverseR: observation.maeR,
+          observed: {
+            hit: observation.hit,
+            at: observation.hitAt,
+          },
+        });
+      } catch (error) {
+        console.error("[Trade Resolution] FAILED:", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    session?.id,
+    session?.symbol,
+    session?.currentTime,
+    session?.trade?.id,
+    session?.trade?.status,
+    session?.trade?.activatedAt,
+  ]);
+
+  /*
+   * Automatic AFTER-trade snapshot.
+   *
+   * The trade is marked closed first. React then renders the closed trade
+   * state on the chart. This effect runs after that render and captures the
+   * actual final chart state.
+   */
+  useEffect(() => {
+    const trade = session?.trade;
+
+    if (
+      !session ||
+      !trade ||
+      trade.status !== "closed" ||
+      !trade.closedAt ||
+      trade.afterSnapshotId
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        if (!chartRef.current) return;
+
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        });
+
+        if (cancelled) return;
+
+        const blob = await chartRef.current.captureSnapshot();
+        const snapshotId = uid();
+
+        await saveSnapshot({
+          id: snapshotId,
+          blob,
+          createdAt: Date.now(),
+          kind: "after",
+          sessionId: session.id,
+        });
+
+        if (cancelled) return;
+
+        const latest = useSessionStore.getState().sessions[session.id]?.trade;
+
+        if (!latest || latest.id !== trade.id || latest.status !== "closed") {
+          return;
+        }
+
+        useSessionStore.getState().setTrade({
+          ...latest,
+          afterSnapshotId: snapshotId,
+        });
+      } catch (error) {
+        console.error("[After Snapshot] FAILED:", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    session?.id,
+    session?.trade?.id,
+    session?.trade?.status,
+    session?.trade?.closedAt,
+    session?.trade?.afterSnapshotId,
   ]);
 
   useEffect(() => {
@@ -224,6 +370,7 @@ function Workspace() {
         {/* chart */}
         <div className="relative min-h-0 flex-1">
           <CandleChart
+            ref={chartRef}
             candles={candles}
             barSeconds={TF_SECONDS[viewTf]}
             timezone={tz}
@@ -352,6 +499,33 @@ function Workspace() {
                   onRemove={() => store.setTrade(null)}
                   onRecord={() => ui.setSheet("recordResult")}
                   onNoTrade={() => ui.setSheet("noTrade")}
+                  onCaptureBefore={async () => {
+                    if (!session?.trade || session.trade.beforeSnapshotId) return;
+                    if (!chartRef.current) return;
+
+                    try {
+                      const blob = await chartRef.current.captureSnapshot();
+                      const snapshotId = uid();
+
+                      await saveSnapshot({
+                        id: snapshotId,
+                        blob,
+                        createdAt: Date.now(),
+                        kind: "before",
+                        sessionId: session.id,
+                      });
+
+                      const currentTrade = session.trade;
+                      if (!currentTrade) return;
+
+                      store.setTrade({
+                        ...currentTrade,
+                        beforeSnapshotId: snapshotId,
+                      });
+                    } catch (error) {
+                      console.error("Failed to capture before-trade chart snapshot:", error);
+                    }
+                  }}
                 />
               )}
             </div>

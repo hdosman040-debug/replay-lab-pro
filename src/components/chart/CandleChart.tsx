@@ -7,7 +7,17 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { toPng } from "html-to-image";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { ChartContext, type CoordApi } from "./chartContext";
 import type { Candle } from "@/lib/market/types";
@@ -21,6 +31,10 @@ interface Props {
   onVisibleRangeChange?: (fromLogical: number) => void;
   onCrosshairPrice?: (price: number | null) => void;
   children?: ReactNode;
+}
+
+export interface CandleChartHandle {
+  captureSnapshot: () => Promise<Blob>;
 }
 
 /**
@@ -61,16 +75,20 @@ function cssVar(name: string, fallback = "#808080") {
   return toRgb(raw, fallback);
 }
 
-export function CandleChart({
-  candles,
-  barSeconds,
-  timezone,
-  onClickEmpty,
-  onVisibleRangeChange,
-  onCrosshairPrice,
-  children,
-}: Props) {
+export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleChart(
+  {
+    candles,
+    barSeconds,
+    timezone,
+    onClickEmpty,
+    onVisibleRangeChange,
+    onCrosshairPrice,
+    children,
+  },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRootRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const prevRef = useRef<Candle[]>([]);
@@ -82,6 +100,34 @@ export function CandleChart({
   cbRef.current = { onClickEmpty, onVisibleRangeChange, onCrosshairPrice };
   const tzRef = useRef(timezone);
   tzRef.current = timezone;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      captureSnapshot: async () => {
+        const root = chartRootRef.current;
+
+        if (!root) {
+          throw new Error("Chart is not mounted.");
+        }
+
+        // Wait one frame so the chart canvas/SVG overlays are fully painted.
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        });
+
+        const dataUrl = await toPng(root, {
+          cacheBust: true,
+          pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+          backgroundColor: getComputedStyle(root).backgroundColor || "#070A0F",
+        });
+
+        const response = await fetch(dataUrl);
+        return await response.blob();
+      },
+    }),
+    [],
+  );
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -370,7 +416,10 @@ export function CandleChart({
 
   return (
     <ChartContext.Provider value={{ coords, version }}>
-      <div className="relative h-full w-full overflow-hidden bg-surface">
+      <div
+        ref={chartRootRef}
+        className="relative h-full w-full overflow-hidden bg-surface"
+      >
         <div ref={containerRef} className="absolute inset-0 z-0" />
 
         {/* Day separators are derived only from currently revealed candles.
@@ -406,7 +455,9 @@ export function CandleChart({
       </div>
     </ChartContext.Provider>
   );
-}
+});
+
+CandleChart.displayName = "CandleChart";
 
 function countBefore(cs: Candle[], t: number) {
   let i = 0;

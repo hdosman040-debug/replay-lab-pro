@@ -87,6 +87,12 @@ export interface TradePlan {
   resultR?: number;
   maxFavorableR?: number;
   maxAdverseR?: number;
+
+  /** Immutable chart image captured before replay continues. */
+  beforeSnapshotId?: string;
+
+  /** Immutable chart image captured after replay closes the trade. */
+  afterSnapshotId?: string;
 }
 
 export function riskDistance(t: Pick<TradePlan, "entry" | "stopLoss">) {
@@ -174,5 +180,10 @@ export interface JournalRecord {
   notes: string;
   /** chart state snapshot for later review */
   drawings: Drawing[];
+
+  /** Immutable chart images captured around a trade */
+  beforeSnapshotId?: string;
+  afterSnapshotId?: string;
+
   createdAt: number;
 }

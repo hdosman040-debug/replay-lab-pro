@@ -7,6 +7,7 @@ import { useJournalStore } from "@/lib/store/journalStore";
 import { useSettingsStore } from "@/lib/store/settingsStore";
 import { useStoresHydrated } from "@/lib/store/hydrate";
 import { fmtDateTime } from "@/lib/time/ny";
+import { TradeSnapshots } from "@/components/journal/TradeSnapshots";
 
 export const Route = createFileRoute("/journal")({
   head: () => ({
@@ -151,17 +152,24 @@ function Detail({
         <Row label="Setup type" value={a.setup.setupType} />
       </section>
       {t && (
-        <section>
-          <h3 className="eyebrow mb-1">Trade</h3>
-          <Row label="Direction" value={t.direction} />
-          <Row label="Entry" value={t.entry.toFixed(1)} />
-          <Row label="Stop loss" value={t.stopLoss.toFixed(1)} />
-          <Row label="Take profit" value={t.takeProfit.toFixed(1)} />
-          <Row label="R:R" value={rrRatio(t).toFixed(2)} />
-          <Row label="Result" value={t.result ?? ""} />
-          <Row label="Result R" value={t.resultR !== undefined ? t.resultR.toFixed(2) : ""} />
-        </section>
-      )}
+          <>
+            <section>
+              <h3 className="eyebrow mb-1">Trade</h3>
+              <Row label="Direction" value={t.direction} />
+              <Row label="Entry" value={t.entry.toFixed(1)} />
+              <Row label="Stop loss" value={t.stopLoss.toFixed(1)} />
+              <Row label="Take profit" value={t.takeProfit.toFixed(1)} />
+              <Row label="R:R" value={rrRatio(t).toFixed(2)} />
+              <Row label="Result" value={t.result ?? ""} />
+              <Row label="Result R" value={t.resultR !== undefined ? t.resultR.toFixed(2) : ""} />
+            </section>
+
+            <TradeSnapshots
+              beforeSnapshotId={record.beforeSnapshotId ?? t.beforeSnapshotId}
+              afterSnapshotId={record.afterSnapshotId ?? t.afterSnapshotId}
+            />
+          </>
+        )}
       {record.kind === "no_trade" && (
         <Row label="Reason" value={NO_TRADE_REASONS.find((x) => x.id === record.noTradeReason)?.label ?? ""} />
       )}
