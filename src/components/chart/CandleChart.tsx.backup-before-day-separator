@@ -329,75 +329,10 @@ export function CandleChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, size, barSeconds]);
 
-  const daySeparators = useMemo(() => {
-    if (!coords || candles.length < 2) return [];
-
-    const weekday = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-    const result: Array<{
-      time: number;
-      x: number;
-      label: string;
-    }> = [];
-
-    let previous = zonedParts(candles[0]!.time, timezone);
-
-    for (let i = 1; i < candles.length; i++) {
-      const candle = candles[i]!;
-      const current = zonedParts(candle.time, timezone);
-
-      const changed =
-        current.year !== previous.year ||
-        current.month !== previous.month ||
-        current.day !== previous.day;
-
-      if (changed) {
-        const x = coords.timeToX(candle.time);
-
-        if (x !== null) {
-          result.push({
-            time: candle.time,
-            x,
-            label: `${weekday[current.weekday]} ${current.day}`,
-          });
-        }
-      }
-
-      previous = current;
-    }
-
-    return result;
-  }, [candles, coords, timezone]);
-
   return (
     <ChartContext.Provider value={{ coords, version }}>
       <div className="relative h-full w-full overflow-hidden bg-surface">
         <div ref={containerRef} className="absolute inset-0 z-0" />
-
-        {/* Day separators are derived only from currently revealed candles.
-            This keeps replay causal: a future day cannot appear early. */}
-        <div
-          className="absolute inset-0 z-10 overflow-hidden"
-          style={{ pointerEvents: "none" }}
-        >
-          {daySeparators.map((separator) => (
-            <div
-              key={separator.time}
-              className="absolute top-0 bottom-0"
-              style={{ left: separator.x }}
-            >
-              <div
-                className="absolute top-2 bottom-0 border-l-2 border-solid"
-                style={{ borderColor: "rgba(234, 179, 8, 0.65)" }}
-              />
-              <div
-                className="absolute left-1 top-2 whitespace-nowrap rounded-sm bg-surface/90 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-muted-foreground"
-              >
-                {separator.label}
-              </div>
-            </div>
-          ))}
-        </div>
-
         {/* Overlays must sit above the chart canvases; children opt back into
             pointer events individually (drawing overlay, trade levels). */}
         <div className="absolute inset-0 z-20" style={{ pointerEvents: "none" }}>
