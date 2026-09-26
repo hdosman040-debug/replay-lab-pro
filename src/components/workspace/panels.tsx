@@ -260,6 +260,7 @@ export function TradePanel({
   onRemove,
   onRecord,
   onNoTrade,
+  onCaptureBefore,
 }: {
   trade: TradePlan | null;
   lastPrice: number | null;
@@ -268,6 +269,7 @@ export function TradePanel({
   onRemove: () => void;
   onRecord: () => void;
   onNoTrade: () => void;
+  onCaptureBefore: () => void;
 }) {
   if (!trade) {
     return (
@@ -349,6 +351,20 @@ export function TradePanel({
         </div>
       )}
       <p className="text-xs text-muted-foreground">Drag the lines on the chart to adjust levels.</p>
+
+      <button
+        type="button"
+        className="touch-btn w-full border border-border text-sm font-semibold"
+        style={{
+          backgroundColor: trade.beforeSnapshotId ? "var(--surface-3)" : "var(--surface)",
+          color: trade.beforeSnapshotId ? "var(--muted-foreground)" : "var(--foreground)",
+        }}
+        onClick={onCaptureBefore}
+        disabled={Boolean(trade.beforeSnapshotId)}
+      >
+        {trade.beforeSnapshotId ? "✓ Before captured" : "📸 Capture Before"}
+      </button>
+
       <div className="grid grid-cols-2 gap-2">
         <button type="button" className="touch-btn border border-border text-sm" onClick={onRemove}>
           Discard plan
