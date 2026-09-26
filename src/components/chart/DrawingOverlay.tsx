@@ -278,6 +278,7 @@ export function DrawingOverlay(props: Props) {
             coords={coords}
             selected={d.id === props.selectedId}
             interactive={!toolActive}
+            candles={props.candles}
             onDown={(e) => beginMove(e, d)}
             onPointDown={(e, i) => beginPoint(e, d, i)}
           />
@@ -290,9 +291,10 @@ export function DrawingOverlay(props: Props) {
           coords={coords}
           selected={true}
           interactive={false}
+          candles={props.candles}
         />
       )}
-      {draft && <Shape d={draft} coords={coords} selected={false} interactive={false} />}
+      {draft && <Shape d={draft} coords={coords} selected={false} interactive={false} candles={props.candles} />}
     </svg>
   );
 }
@@ -306,6 +308,7 @@ function Shape({
   interactive,
   onDown,
   onPointDown,
+  candles,
 }: {
   d: Drawing;
   coords: CoordApi;
@@ -313,6 +316,7 @@ function Shape({
   interactive: boolean;
   onDown?: (e: RPointerEvent) => void;
   onPointDown?: (e: RPointerEvent, index: number) => void;
+  candles: Candle[];
 }) {
   const { width } = coords;
   const pts = d.points.map((p) => ({ x: coords.timeToX(p.time), y: coords.priceToY(p.price) }));
@@ -356,10 +360,32 @@ function Shape({
     case "ray": {
       const y = p0.y;
       const x1 = Math.max(0, p0.x);
+
+      // Liquidity rays are intentionally finite for Android usability.
+      // Extend 20 candles from the anchor instead of stretching to
+      // the right edge of the chart.
+      const LIQUIDITY_RAY_CANDLES = 20;
+      const anchorTime = d.points[0]!.time;
+      const anchorCandleIndex = candles.findIndex((c) => c.time === anchorTime);
+      const endCandleIndex =
+        anchorCandleIndex >= 0
+          ? Math.min(anchorCandleIndex + LIQUIDITY_RAY_CANDLES, candles.length - 1)
+          : -1;
+
+      const finiteEndTime =
+        endCandleIndex >= 0
+          ? candles[endCandleIndex]!.time
+          : anchorTime;
+
+      const x2 = Math.min(
+        width,
+        Math.max(x1, coords.timeToX(finiteEndTime) ?? x1),
+      );
+
       return (
         <g>
-          <line x1={x1} x2={width} y1={y} y2={y} stroke={color} strokeWidth={stroke} />
-          <line x1={x1} x2={width} y1={y} y2={y} stroke="transparent" strokeWidth={22} style={{ pointerEvents: pe }} onPointerDown={onDown} />
+          <line x1={x1} x2={x2} y1={y} y2={y} stroke={color} strokeWidth={stroke} />
+          <line x1={x1} x2={x2} y1={y} y2={y} stroke="transparent" strokeWidth={22} style={{ pointerEvents: pe }} onPointerDown={onDown} />
           <Tag x={x1 + 4} y={y - 6} text={`${d.label ?? ""} ${d.points[0]!.price.toFixed(1)}`} color={color} />
           {handles}
         </g>
