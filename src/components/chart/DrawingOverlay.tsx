@@ -520,47 +520,133 @@ function SessionBands({
   showSessions: boolean;
   showTradingWindow: boolean;
 }) {
-  const { visibleFrom, visibleTo, height, barSeconds } = coords;
-  const segs: { x1: number; x2: number; s: SessionName; tw: boolean }[] = [];
-  let cur: { x1: number; x2: number; s: SessionName; tw: boolean } | null = null;
-  const halfBar = ((coords.timeToX(visibleFrom + barSeconds) ?? 0) - (coords.timeToX(visibleFrom) ?? 0)) / 2;
-  for (const c of candles) {
-    if (c.time + barSeconds < visibleFrom || c.time > visibleTo) continue;
-    const key = `${timezone}|${c.time}|${sessions.asia}|${sessions.london}|${sessions.newyork}`;
-    let s = sessionCache.get(key);
-    if (!s) {
-      s = sessionAt(c.time, sessions, timezone);
-      if (sessionCache.size > 20000) sessionCache.clear();
-      sessionCache.set(key, s);
+  const { visibleFrom, visibleTo, height } = coords;
+
+  const segs: {
+    x1: number;
+    x2: number;
+    s: SessionName;
+    tw: boolean;
+  }[] = [];
+
+  let cur: {
+    x1: number;
+    x2: number;
+    s: SessionName;
+    tw: boolean;
+  } | null = null;
+
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i]!;
+
+    // Keep session bands causal and limited to the currently visible chart.
+    if (c.time > visibleTo) break;
+
+    const next = candles[i + 1];
+    const prev = candles[i - 1];
+
+    // Derive the actual candle width from neighboring candle timestamps.
+    // This keeps the band attached to market time rather than the replay cursor.
+    const nextTime =
+      next?.time ??
+      (c.time + (c.time - (prev?.time ?? c.time)));
+
+    const prevTime = prev?.time ?? c.time - (nextTime - c.time);
+
+    const currentX = coords.timeToX(c.time);
+    if (currentX === null) continue;
+
+    const prevX = coords.timeToX(prevTime);
+    const nextX = coords.timeToX(nextTime);
+
+    let halfBar = 0;
+
+    if (nextX !== null) {
+      halfBar = Math.abs(nextX - currentX) / 2;
+    } else if (prevX !== null) {
+      halfBar = Math.abs(currentX - prevX) / 2;
     }
-    const tw = inWindow(minutesOfDay(c.time, timezone), sessions.tradingWindow);
-    const x = coords.timeToX(c.time);
-    if (x === null) continue;
-    const x1 = x - halfBar;
-    const x2 = x + halfBar;
-    if (cur && cur.s === s && cur.tw === tw && x1 - cur.x2 < halfBar * 4) {
+
+    if (!Number.isFinite(halfBar) || halfBar <= 0) continue;
+
+    const x1 = currentX - halfBar;
+    const x2 = currentX + halfBar;
+
+    // A candle belongs to the session determined by its actual timestamp.
+    const key =
+      `${timezone}|${c.time}|${sessions.asia}|${sessions.london}|${sessions.newyork}`;
+
+    let session = sessionCache.get(key);
+
+    if (!session) {
+      session = sessionAt(c.time, sessions, timezone);
+
+      if (sessionCache.size > 20000) {
+        sessionCache.clear();
+      }
+
+      sessionCache.set(key, session);
+    }
+
+    const tw = inWindow(
+      minutesOfDay(c.time, timezone),
+      sessions.tradingWindow
+    );
+
+    if (
+      cur &&
+      cur.s === session &&
+      cur.tw === tw &&
+      x1 - cur.x2 < halfBar * 4
+    ) {
       cur.x2 = x2;
     } else {
       if (cur) segs.push(cur);
-      cur = { x1, x2, s, tw };
+
+      cur = {
+        x1,
+        x2,
+        s: session,
+        tw,
+      };
     }
   }
-  if (cur) segs.push(cur);
+
+  if (cur) {
+    segs.push(cur);
+  }
+
   const fill: Record<SessionName, string> = {
-    asia: "var(--info)",
-    london: "var(--poi)",
-    newyork: "var(--warn)",
+    asia: "#22D3C5",
+    london: "#A78BFA",
+    newyork: "#F5B942",
     off: "transparent",
   };
+
   return (
     <g style={{ pointerEvents: "none" }}>
       {segs.map((s, i) => (
         <g key={i}>
           {showSessions && s.s !== "off" && (
-            <rect x={s.x1} y={0} width={Math.max(0, s.x2 - s.x1)} height={height} fill={fill[s.s]} fillOpacity={0.045} />
+            <rect
+              x={s.x1}
+              y={0}
+              width={Math.max(0, s.x2 - s.x1)}
+              height={height}
+              fill={fill[s.s]}
+              fillOpacity={0.18}
+            />
           )}
+
           {showTradingWindow && s.tw && (
-            <rect x={s.x1} y={0} width={Math.max(0, s.x2 - s.x1)} height={3} fill="var(--warn)" fillOpacity={0.9} />
+            <rect
+              x={s.x1}
+              y={0}
+              width={Math.max(0, s.x2 - s.x1)}
+              height={3}
+              fill="#F5B942"
+              fillOpacity={0.95}
+            />
           )}
         </g>
       ))}

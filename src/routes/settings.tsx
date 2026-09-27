@@ -77,6 +77,30 @@ function SettingsPage() {
         <PageHeader title="Settings" subtitle="Nothing here is hard-coded" />
         <div className="space-y-5 p-3">
           <section className="space-y-2">
+            <h2 className="eyebrow">Appearance</h2>
+            <Field label="Theme">
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  className="chip"
+                  data-active={settings.theme === "dark"}
+                  onClick={() => update({ theme: "dark" })}
+                >
+                  Dark
+                </button>
+                <button
+                  type="button"
+                  className="chip"
+                  data-active={settings.theme === "light"}
+                  onClick={() => update({ theme: "light" })}
+                >
+                  Light
+                </button>
+              </div>
+            </Field>
+          </section>
+
+          <section className="space-y-2">
             <h2 className="eyebrow">Replay defaults</h2>
             <Field label="Default timeframe">
               <div className="flex flex-wrap gap-1.5">

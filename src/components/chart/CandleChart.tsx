@@ -385,6 +385,9 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
       label: string;
     }> = [];
 
+    // A separator belongs to the first revealed candle of the new
+    // calendar day in the configured market timezone. It is therefore
+    // anchored to market time and remains stable during replay/scroll/zoom.
     let previous = zonedParts(candles[0]!.time, timezone);
 
     for (let i = 1; i < candles.length; i++) {

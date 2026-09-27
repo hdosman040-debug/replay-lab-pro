@@ -5,7 +5,7 @@ import type { Timeframe } from "@/lib/market/types";
 import { DEFAULT_SESSIONS, DEFAULT_TZ, type SessionWindows } from "@/lib/time/ny";
 
 export interface Settings {
-  theme: "dark";
+  theme: "dark" | "light";
   defaultTimeframe: Timeframe;
   defaultSpeed: number;
   sessionTimezone: string;
