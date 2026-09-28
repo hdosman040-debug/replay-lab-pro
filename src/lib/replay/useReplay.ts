@@ -10,7 +10,7 @@ import {
 } from "./engine";
 import type { ReplaySession } from "@/lib/backtest/types";
 import { getMarketDataProvider } from "@/lib/market";
-import type { Candle, Timeframe } from "@/lib/market/types";
+import { TF_SECONDS, type Candle, type Timeframe } from "@/lib/market/types";
 
 const HISTORY_PAGE_SIZE = 300;
 
@@ -33,8 +33,11 @@ export function useReplay(
   const viewRef = useRef<ReplayView | null>(null);
   const historyRef = useRef<Candle[]>([]);
   const historyBusyRef = useRef(false);
+  const sessionIdRef = useRef<string | undefined>(undefined);
+  const historyGenRef = useRef(0);
 
   const symbol = session?.symbol;
+  const sessionId = session?.id;
   const horizon = session?.currentTime ?? 0;
 
   /*
@@ -61,9 +64,14 @@ export function useReplay(
     const identityChanged =
       !existing ||
       existing.symbol !== symbol ||
-      existing.timeframe !== viewTf;
+      existing.timeframe !== viewTf ||
+      sessionIdRef.current !== sessionId ||
+      horizon < existing.horizon;
+
+    sessionIdRef.current = sessionId;
 
     if (identityChanged) {
+      historyGenRef.current += 1;
       viewRef.current = null;
       historyRef.current = [];
       setOlderHistory([]);
@@ -111,7 +119,7 @@ export function useReplay(
     return () => {
       cancelled = true;
     };
-  }, [symbol, viewTf, horizon, lookback]);
+  }, [symbol, sessionId, viewTf, horizon, lookback]);
 
   /*
    * Load older candles when the chart approaches its left edge.
@@ -129,6 +137,7 @@ export function useReplay(
 
       historyBusyRef.current = true;
       setHistoryLoading(true);
+      const gen = historyGenRef.current;
 
       try {
         const provider = getMarketDataProvider();
@@ -149,6 +158,7 @@ export function useReplay(
         );
 
         if (older.length === 0) return;
+        if (gen !== historyGenRef.current) return; // clock/session changed while loading
 
         /*
          * Remove duplicates and keep chronological order.
@@ -180,9 +190,14 @@ export function useReplay(
   const candles = useMemo<Candle[]>(() => {
     if (!view) return [];
 
-    const completed = view.completed;
+    const tfs = TF_SECONDS[view.timeframe];
+    // Never show candles at/after the replay clock (stale view after a backward jump).
+    const stale = view.horizon > horizon;
+    const completed = stale
+      ? view.completed.filter((c) => c.time + tfs <= horizon)
+      : view.completed;
 
-    const replayCandles = !view.forming
+    const replayCandles = !view.forming || stale
       ? completed
       : (() => {
           const lastCompleted = completed[completed.length - 1];
@@ -209,11 +224,11 @@ export function useReplay(
     const replayTimes = new Set(replayCandles.map((c) => c.time));
 
     const historyOnly = olderHistory.filter(
-      (c) => !replayTimes.has(c.time),
+      (c) => !replayTimes.has(c.time) && c.time + tfs <= horizon,
     );
 
     return [...historyOnly, ...replayCandles];
-  }, [view, olderHistory]);
+  }, [view, olderHistory, horizon]);
 
   const last = candles.length ? candles[candles.length - 1]! : null;
 

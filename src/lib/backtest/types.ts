@@ -187,3 +187,30 @@ export interface JournalRecord {
 
   createdAt: number;
 }
+
+/**
+ * Undo trade state that only exists in the "future" when the replay clock
+ * jumps backward to time `t`.
+ */
+export function rewindTrade(trade: TradePlan | null, t: number): TradePlan | null {
+  if (!trade || trade.status === "planned") return trade;
+
+  if (trade.closedAt !== undefined && trade.closedAt > t) {
+    const {
+      closedAt, observed, result, exitPrice, resultR,
+      maxFavorableR, maxAdverseR, afterSnapshotId, ...rest
+    } = trade;
+    if (rest.activatedAt !== undefined && rest.activatedAt <= t) {
+      return { ...rest, status: "active" };
+    }
+    const { activatedAt, ...planned } = rest;
+    return { ...planned, status: "planned" };
+  }
+
+  if (trade.status === "active" && trade.activatedAt !== undefined && trade.activatedAt > t) {
+    const { activatedAt, ...planned } = trade;
+    return { ...planned, status: "planned" };
+  }
+
+  return trade;
+}

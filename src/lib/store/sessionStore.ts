@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { emptyAnalysis, type Analysis, type ReplaySession, type TradePlan, type WorkflowStepId } from "@/lib/backtest/types";
+import { emptyAnalysis, rewindTrade, type Analysis, type ReplaySession, type TradePlan, type WorkflowStepId } from "@/lib/backtest/types";
 import type { Drawing } from "@/lib/drawings/types";
 import type { Symbol, Timeframe } from "@/lib/market/types";
 
@@ -93,7 +93,12 @@ export const useSessionStore = create<SessionState>()(
           set((st) => {
             const s = st.sessions[id];
             if (!s) return st;
-            return { sessions: { ...st.sessions, [id]: { ...s, ...patch, updatedAt: Date.now() } } };
+            const next = { ...s, ...patch, updatedAt: Date.now() };
+            // Moving the clock backward must undo trade state from the "future".
+            if (patch.currentTime !== undefined && patch.currentTime < s.currentTime && !("trade" in patch)) {
+              next.trade = rewindTrade(s.trade, patch.currentTime);
+            }
+            return { sessions: { ...st.sessions, [id]: next } };
           }),
         patchActive: (patch) => {
           const s = active();
