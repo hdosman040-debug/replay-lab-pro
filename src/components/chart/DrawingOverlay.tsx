@@ -529,13 +529,16 @@ function SessionBands({
   const tradingSegs: Array<{ x1: number; x2: number }> = [];
 
   const { visibleFrom, visibleTo, width } = coords;
+  const lastRevealed = candles.length
+    ? candles[candles.length - 1]!.time + coords.barSeconds
+    : visibleTo;
 
   const parseHHMM = (value: string) => {
     const [hour, minute] = value.split(":").map(Number);
 
     return {
-      hour: Number.isFinite(hour) ? hour : 0,
-      minute: Number.isFinite(minute) ? minute : 0,
+      hour: Number.isFinite(hour) ? (hour as number) : 0,
+      minute: Number.isFinite(minute) ? (minute as number) : 0,
     };
   };
 
@@ -669,7 +672,7 @@ function SessionBands({
       }
 
       const x1 = xForTime(start);
-      const x2 = xForTime(end);
+      const x2 = xForTime(Math.min(end, lastRevealed));
 
       const yHigh = coords.priceToY(high);
       const yLow = coords.priceToY(low);
@@ -745,11 +748,14 @@ function SessionBands({
           <rect
             key={`session-${i}`}
             x={s.x1}
-            y={0}
+            y={s.y1}
             width={Math.max(0, s.x2 - s.x1)}
-            height={coords.height}
+            height={Math.max(1, s.y2 - s.y1)}
             fill={fill[s.s]}
-            fillOpacity={0.18}
+            fillOpacity={0.14}
+            stroke={fill[s.s]}
+            strokeOpacity={0.6}
+            strokeWidth={1}
           />
         ))}
 
