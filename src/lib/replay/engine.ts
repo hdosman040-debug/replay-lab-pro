@@ -209,13 +209,48 @@ export async function advanceCandles(
   n: number,
 ): Promise<number> {
   if (n <= 0) return horizon;
+
   const tfs = TF_SECONDS[tf];
   const bucket = floorToTf(horizon, tf);
-  const to = bucket + n * tfs + 4 * DAY;
-  const ahead = await provider.getCandles({ symbol, timeframe: tf, from: bucket, to });
-  if (ahead.length === 0) return bucket + n * tfs; // no data at all — just tick
-  const target = ahead[Math.min(n - 1, ahead.length - 1)]!;
-  return target.time + tfs;
+  const bounds = await provider.getBounds(symbol, tf);
+
+  if (!bounds) return bucket;
+
+  // The replay horizon may advance one timeframe beyond the final
+  // available candle. That represents the clock immediately after the
+  // last completed candle and preserves the dataset-boundary behavior.
+  const maxHorizon = bounds.latest + tfs;
+
+  // Search progressively farther only when the initial window contains
+  // no real candles. This handles weekends, holidays, maintenance gaps,
+  // and other gaps longer than the normal 4-day search window without
+  // immediately requesting an unnecessarily large range.
+  let searchSpan = 4 * DAY;
+
+  while (true) {
+    const to = Math.min(
+      bucket + n * tfs + searchSpan,
+      maxHorizon + tfs,
+    );
+
+    const ahead = await provider.getCandles({
+      symbol,
+      timeframe: tf,
+      from: bucket,
+      to,
+    });
+
+    if (ahead.length > 0) {
+      const target = ahead[Math.min(n - 1, ahead.length - 1)]!;
+      return Math.min(target.time + tfs, maxHorizon);
+    }
+
+    if (to >= maxHorizon + tfs) {
+      return maxHorizon;
+    }
+
+    searchSpan *= 2;
+  }
 }
 
 export interface TradeObservation {

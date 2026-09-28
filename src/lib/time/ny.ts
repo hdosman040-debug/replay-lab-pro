@@ -38,7 +38,7 @@ export function zonedParts(utcSeconds: number, tz = DEFAULT_TZ): ZonedParts {
     minute: "2-digit",
     second: "2-digit",
     weekday: "short",
-    hour12: true,
+    hourCycle: "h23",
   }).formatToParts(new Date(utcSeconds * 1000));
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "0";
   return {

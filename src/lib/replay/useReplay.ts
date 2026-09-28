@@ -75,6 +75,14 @@ export function useReplay(
     const prev = identityChanged ? null : viewRef.current;
     const delta = canDelta(prev, symbol, viewTf, horizon);
 
+    // A backward replay jump creates a new causal view.
+    // History loaded for the previous (later) horizon must not survive,
+    // otherwise future candles can reappear after the jump.
+    if (!identityChanged && prev && horizon < prev.horizon) {
+      historyRef.current = [];
+      setOlderHistory([]);
+    }
+
     if (!delta) {
       setLoading(true);
     }

@@ -151,6 +151,21 @@ describe("replay stepping", () => {
     const v = await loadReplayView(mockMarketDataProvider, SYM, "M5", next, 20);
     for (const c of allCandles(v)) expect(c.time).toBeLessThan(next);
   });
+
+  it("clamps at the dataset boundary when no later candles exist", async () => {
+    const bounds = await mockMarketDataProvider.getBounds(SYM, "M5");
+    if (!bounds) throw new Error("Mock provider returned no bounds");
+
+    const next = await advanceCandles(
+      mockMarketDataProvider,
+      SYM,
+      "M5",
+      bounds.latest,
+      10,
+    );
+
+    expect(next).toBe(bounds.latest + 5 * 60);
+  });
 });
 
 describe("delta loading", () => {

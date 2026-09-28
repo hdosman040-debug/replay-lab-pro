@@ -624,7 +624,7 @@ function SessionBands({
 
   /*
    * Start one NY calendar day before the visible range because Asia
-   * crosses midnight (for example 19:00 -> 02:00).
+   * crosses midnight (for example 20:00 -> 02:00).
    */
   const first = dateParts(visibleFrom);
   const last = dateParts(visibleTo);
@@ -745,9 +745,9 @@ function SessionBands({
           <rect
             key={`session-${i}`}
             x={s.x1}
-            y={s.y1}
+            y={0}
             width={Math.max(0, s.x2 - s.x1)}
-            height={Math.max(0, s.y2 - s.y1)}
+            height={coords.height}
             fill={fill[s.s]}
             fillOpacity={0.18}
           />

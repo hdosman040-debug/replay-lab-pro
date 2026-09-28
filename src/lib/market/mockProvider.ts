@@ -1,6 +1,6 @@
 import { aggregateCandles } from "./aggregate";
 import type { MarketDataProvider } from "./provider";
-import { TIMEFRAMES, type Candle, type CandleRange, type DatasetInfo, type Symbol, type Timeframe } from "./types";
+import { floorToTf, TIMEFRAMES, type Candle, type CandleRange, type DatasetInfo, type Symbol, type Timeframe } from "./types";
 
 /**
  * MockMarketDataProvider
@@ -159,8 +159,14 @@ class MockMarketDataProvider implements MarketDataProvider {
     return aggregateCandles(m1, timeframe).filter((c) => c.time >= from && c.time < to);
   }
 
-  async getBounds(_symbol: Symbol, _timeframe: Timeframe) {
-    return { earliest: DATA_START + 22 * 3600, latest: DATA_END - 3 * 3600 - 60 };
+  async getBounds(_symbol: Symbol, timeframe: Timeframe) {
+    const earliestM1 = DATA_START + 22 * 3600;
+    const latestM1 = DATA_END - 3 * 3600 - 60;
+
+    return {
+      earliest: floorToTf(earliestM1, timeframe),
+      latest: floorToTf(latestM1, timeframe),
+    };
   }
 
   async listDatasets(): Promise<DatasetInfo[]> {
