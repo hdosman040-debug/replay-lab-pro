@@ -269,18 +269,30 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     // History was prepended:
     // preserve the same candles on screen by shifting their logical
     // positions to account for the newly inserted candles.
+    const lastNow = candles[candles.length - 1];
+    const prevLast = prev[prev.length - 1];
+
+    // Same newest candle => older candles were prepended (history scroll).
+    // A different newest candle means the clock jumped, not a prepend.
     const historyPrepended =
       prev.length > 0 &&
       first !== undefined &&
       prevFirst !== undefined &&
-      first.time < prevFirst.time;
+      first.time < prevFirst.time &&
+      lastNow !== undefined &&
+      prevLast !== undefined &&
+      lastNow.time === prevLast.time;
+
+    // Replay clock jumped backward: show the newest candle, don't shift an old viewport.
+    const jumpedBack =
+      lastNow !== undefined && prevLast !== undefined && lastNow.time < prevLast.time;
 
     series.setData(candles.map(toBar));
 
     if (prev.length === 0) {
       // Initial load.
       chart.timeScale().scrollToPosition(6, false);
-    } else if (replayTrim) {
+    } else if (replayTrim || jumpedBack) {
       // Replay is moving forward and the lookback window is sliding.
       // Always keep the current/latest candle visible.
       chart.timeScale().scrollToPosition(6, false);

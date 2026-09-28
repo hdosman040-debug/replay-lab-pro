@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointer
 import { useChartCtx, type CoordApi } from "./chartContext";
 import { isTwoPoint, type Drawing, type PricePoint, type ToolDef } from "@/lib/drawings/types";
 import type { Candle } from "@/lib/market/types";
-import { hhmmToMinutes, type SessionName, type SessionWindows, zonedParts, zonedToUtc } from "@/lib/time/ny";
+import { hhmmToMinutes, SESSION_LABEL, type SessionName, type SessionWindows, zonedParts, zonedToUtc } from "@/lib/time/ny";
 
 interface Props {
   drawings: Drawing[];
@@ -524,6 +524,7 @@ function SessionBands({
     y1: number;
     y2: number;
     s: SessionName;
+    clipped: boolean;
   }> = [];
 
   const tradingSegs: Array<{ x1: number; x2: number }> = [];
@@ -658,11 +659,13 @@ function SessionBands({
 
       let high = -Infinity;
       let low = Infinity;
+      let firstIn = Infinity;
 
       for (const candle of candles) {
         if (candle.time < start) continue;
         if (candle.time >= end) break;
 
+        if (candle.time < firstIn) firstIn = candle.time;
         high = Math.max(high, candle.high);
         low = Math.min(low, candle.low);
       }
@@ -671,7 +674,12 @@ function SessionBands({
         continue;
       }
 
-      const x1 = xForTime(start);
+      // Start at the first candle really inside the session (not the nominal
+      // start, which may be in a data gap or before the loaded history).
+      // If that is off-screen to the left, push the left edge outside the pane
+      // so no border is drawn there: the box is visibly cut, not "extended".
+      const clipped = firstIn <= visibleFrom;
+      const x1 = clipped ? -2 : xForTime(firstIn);
       const x2 = xForTime(Math.min(end, lastRevealed));
 
       const yHigh = coords.priceToY(high);
@@ -693,6 +701,7 @@ function SessionBands({
         y1: Math.min(yHigh, yLow),
         y2: Math.max(yHigh, yLow),
         s: def.name,
+        clipped,
       });
     }
 
@@ -745,18 +754,31 @@ function SessionBands({
     <g style={{ pointerEvents: "none" }}>
       {showSessions &&
         sessionSegs.map((s, i) => (
-          <rect
-            key={`session-${i}`}
-            x={s.x1}
-            y={s.y1}
-            width={Math.max(0, s.x2 - s.x1)}
-            height={Math.max(1, s.y2 - s.y1)}
-            fill={fill[s.s]}
-            fillOpacity={0.14}
-            stroke={fill[s.s]}
-            strokeOpacity={0.6}
-            strokeWidth={1}
-          />
+          <g key={`session-${i}`}>
+            <rect
+              x={s.x1}
+              y={s.y1}
+              width={Math.max(0, s.x2 - s.x1)}
+              height={Math.max(1, s.y2 - s.y1)}
+              fill={fill[s.s]}
+              fillOpacity={0.14}
+              stroke={fill[s.s]}
+              strokeOpacity={0.6}
+              strokeWidth={1}
+            />
+            {!s.clipped && s.y2 - s.y1 > 16 && (
+              <text
+                x={s.x1 + 4}
+                y={s.y1 + 11}
+                fill={fill[s.s]}
+                fontSize={10}
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight={600}
+              >
+                {SESSION_LABEL[s.s]}
+              </text>
+            )}
+          </g>
         ))}
 
       {showTradingWindow &&
