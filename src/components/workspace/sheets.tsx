@@ -220,7 +220,6 @@ export function RecordResultSheet({
   open,
   session,
   sessions,
-  tz,
   onClose,
   onSave,
 }: {
@@ -292,7 +291,7 @@ export function RecordResultSheet({
               symbol: session.symbol,
               timeframe: session.timeframe,
               decisionTime: session.currentTime,
-              session: SESSION_LABEL[sessionAt(session.currentTime, sessions, tz)],
+              session: SESSION_LABEL[sessionAt(session.currentTime, sessions)],
               analysis: session.analysis,
               trade: {
                 ...trade,
@@ -328,7 +327,6 @@ export function NoTradeSheet({
   open,
   session,
   sessions,
-  tz,
   onClose,
   onSave,
 }: {
@@ -369,7 +367,7 @@ export function NoTradeSheet({
               symbol: session.symbol,
               timeframe: session.timeframe,
               decisionTime: session.currentTime,
-              session: SESSION_LABEL[sessionAt(session.currentTime, sessions, tz)],
+              session: SESSION_LABEL[sessionAt(session.currentTime, sessions)],
               analysis: session.analysis,
               trade: null,
               noTradeReason: reason,

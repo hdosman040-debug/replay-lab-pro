@@ -132,8 +132,9 @@ export function inWindow(minute: number, [a, b]: [string, string]): boolean {
   return minute >= s || minute < e; // wraps midnight
 }
 
-export function sessionAt(utcSeconds: number, windows: SessionWindows, tz = DEFAULT_TZ): SessionName {
-  const m = minutesOfDay(utcSeconds, tz);
+/** Sessions are always evaluated in New York time, never the display timezone. */
+export function sessionAt(utcSeconds: number, windows: SessionWindows): SessionName {
+  const m = minutesOfDay(utcSeconds, DEFAULT_TZ);
   if (inWindow(m, windows.newyork)) return "newyork";
   if (inWindow(m, windows.london)) return "london";
   if (inWindow(m, windows.asia)) return "asia";
