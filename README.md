@@ -1,6 +1,6 @@
 # Replay Lab
 
-Build: ICT Trade Terminal — US30 Replay & Manual Backtesting Workstation
+Build: replay-lab-pro — US30 Replay & Manual Backtesting Workstation
 
 Product Mission
 
