@@ -153,7 +153,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       rightPriceScale: {
         borderColor: border,
-        scaleMargins: { top: 0.08, bottom: 0.08 },
+        scaleMargins: { top: 0.04, bottom: 0.04 },
         entireTextOnly: true,
       },
       timeScale: {
@@ -161,7 +161,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 6,
-        barSpacing: 7,
+        barSpacing: 8,
         minBarSpacing: 1.5,
         tickMarkFormatter: (t: UTCTimestamp) => {
           const p = zonedParts(t, tzRef.current);

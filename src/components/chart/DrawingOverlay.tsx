@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointer
 import { useChartCtx, type CoordApi } from "./chartContext";
 import { isTwoPoint, type Drawing, type PricePoint, type ToolDef } from "@/lib/drawings/types";
 import type { Candle } from "@/lib/market/types";
-import { sessionAt, type SessionName, type SessionWindows, inWindow, minutesOfDay } from "@/lib/time/ny";
+import { hhmmToMinutes, type SessionName, type SessionWindows, zonedParts, zonedToUtc } from "@/lib/time/ny";
 
 interface Props {
   drawings: Drawing[];
@@ -278,9 +278,9 @@ export function DrawingOverlay(props: Props) {
             coords={coords}
             selected={d.id === props.selectedId}
             interactive={!toolActive}
-            candles={props.candles}
             onDown={(e) => beginMove(e, d)}
             onPointDown={(e, i) => beginPoint(e, d, i)}
+            candles={props.candles}
           />
         );
       })}
@@ -308,7 +308,6 @@ function Shape({
   interactive,
   onDown,
   onPointDown,
-  candles,
 }: {
   d: Drawing;
   coords: CoordApi;
@@ -358,35 +357,34 @@ function Shape({
       );
     }
     case "ray": {
-      const y = p0.y;
-      const x1 = Math.max(0, p0.x);
+      const p1 = pts[0];
+      const p2 = pts[1];
 
-      // Liquidity rays are intentionally finite for Android usability.
-      // Extend 20 candles from the anchor instead of stretching to
-      // the right edge of the chart.
-      const LIQUIDITY_RAY_CANDLES = 20;
-      const anchorTime = d.points[0]!.time;
-      const anchorCandleIndex = candles.findIndex((c) => c.time === anchorTime);
-      const endCandleIndex =
-        anchorCandleIndex >= 0
-          ? Math.min(anchorCandleIndex + LIQUIDITY_RAY_CANDLES, candles.length - 1)
-          : -1;
+      if (!p1 || p1.x === null || p1.y === null) return null;
 
-      const finiteEndTime =
-        endCandleIndex >= 0
-          ? candles[endCandleIndex]!.time
-          : anchorTime;
-
-      const x2 = Math.min(
-        width,
-        Math.max(x1, coords.timeToX(finiteEndTime) ?? x1),
-      );
+      const x1 = p1.x;
+      const x2 = p2?.x ?? x1;
 
       return (
         <g>
-          <line x1={x1} x2={x2} y1={y} y2={y} stroke={color} strokeWidth={stroke} />
-          <line x1={x1} x2={x2} y1={y} y2={y} stroke="transparent" strokeWidth={22} style={{ pointerEvents: pe }} onPointerDown={onDown} />
-          <Tag x={x1 + 4} y={y - 6} text={`${d.label ?? ""} ${d.points[0]!.price.toFixed(1)}`} color={color} />
+          <line
+            x1={x1}
+            x2={x2}
+            y1={p1.y}
+            y2={p1.y}
+            stroke={color}
+            strokeWidth={stroke}
+          />
+          <line
+            x1={x1}
+            x2={x2}
+            y1={p1.y}
+            y2={p1.y}
+            stroke="transparent"
+            strokeWidth={22}
+            style={{ pointerEvents: pe }}
+            onPointerDown={onDown}
+          />
           {handles}
         </g>
       );
@@ -520,100 +518,217 @@ function SessionBands({
   showSessions: boolean;
   showTradingWindow: boolean;
 }) {
-  const { visibleFrom, visibleTo, height } = coords;
-
-  const segs: {
+  const sessionSegs: Array<{
     x1: number;
     x2: number;
+    y1: number;
+    y2: number;
     s: SessionName;
-    tw: boolean;
-  }[] = [];
+  }> = [];
 
-  let cur: {
-    x1: number;
-    x2: number;
-    s: SessionName;
-    tw: boolean;
-  } | null = null;
+  const tradingSegs: Array<{ x1: number; x2: number }> = [];
 
-  for (let i = 0; i < candles.length; i++) {
-    const c = candles[i]!;
+  const { visibleFrom, visibleTo, width } = coords;
 
-    // Keep session bands causal and limited to the currently visible chart.
-    if (c.time > visibleTo) break;
+  const parseHHMM = (value: string) => {
+    const [hour, minute] = value.split(":").map(Number);
 
-    const next = candles[i + 1];
-    const prev = candles[i - 1];
+    return {
+      hour: Number.isFinite(hour) ? hour : 0,
+      minute: Number.isFinite(minute) ? minute : 0,
+    };
+  };
 
-    // Derive the actual candle width from neighboring candle timestamps.
-    // This keeps the band attached to market time rather than the replay cursor.
-    const nextTime =
-      next?.time ??
-      (c.time + (c.time - (prev?.time ?? c.time)));
+  const dateParts = (utcSeconds: number) => {
+    const p = zonedParts(utcSeconds, timezone);
 
-    const prevTime = prev?.time ?? c.time - (nextTime - c.time);
+    return {
+      year: p.year,
+      month: p.month,
+      day: p.day,
+    };
+  };
 
-    const currentX = coords.timeToX(c.time);
-    if (currentX === null) continue;
+  const addDays = (
+    year: number,
+    month: number,
+    day: number,
+    days: number,
+  ) => {
+    const d = new Date(Date.UTC(year, month - 1, day));
+    d.setUTCDate(d.getUTCDate() + days);
 
-    const prevX = coords.timeToX(prevTime);
-    const nextX = coords.timeToX(nextTime);
+    return {
+      year: d.getUTCFullYear(),
+      month: d.getUTCMonth() + 1,
+      day: d.getUTCDate(),
+    };
+  };
 
-    let halfBar = 0;
+  const intervalFor = (
+    base: { year: number; month: number; day: number },
+    window: [string, string],
+  ) => {
+    const startParts = parseHHMM(window[0]);
+    const endParts = parseHHMM(window[1]);
 
-    if (nextX !== null) {
-      halfBar = Math.abs(nextX - currentX) / 2;
-    } else if (prevX !== null) {
-      halfBar = Math.abs(currentX - prevX) / 2;
-    }
+    const startMinutes = hhmmToMinutes(window[0]);
+    const endMinutes = hhmmToMinutes(window[1]);
 
-    if (!Number.isFinite(halfBar) || halfBar <= 0) continue;
-
-    const x1 = currentX - halfBar;
-    const x2 = currentX + halfBar;
-
-    // A candle belongs to the session determined by its actual timestamp.
-    const key =
-      `${timezone}|${c.time}|${sessions.asia}|${sessions.london}|${sessions.newyork}`;
-
-    let session = sessionCache.get(key);
-
-    if (!session) {
-      session = sessionAt(c.time, sessions, timezone);
-
-      if (sessionCache.size > 20000) {
-        sessionCache.clear();
-      }
-
-      sessionCache.set(key, session);
-    }
-
-    const tw = inWindow(
-      minutesOfDay(c.time, timezone),
-      sessions.tradingWindow
+    const start = zonedToUtc(
+      base.year,
+      base.month,
+      base.day,
+      startParts.hour,
+      startParts.minute,
+      timezone,
     );
 
-    if (
-      cur &&
-      cur.s === session &&
-      cur.tw === tw &&
-      x1 - cur.x2 < halfBar * 4
-    ) {
-      cur.x2 = x2;
-    } else {
-      if (cur) segs.push(cur);
+    const endDate =
+      endMinutes <= startMinutes
+        ? addDays(base.year, base.month, base.day, 1)
+        : base;
 
-      cur = {
+    const end = zonedToUtc(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+      endParts.hour,
+      endParts.minute,
+      timezone,
+    );
+
+    return { start, end };
+  };
+
+  const xForTime = (time: number) => {
+    if (time <= visibleFrom) return 0;
+    if (time >= visibleTo) return width;
+
+    return coords.timeToX(time);
+  };
+
+  /*
+   * The candle array is normally chronological. These exact timestamp
+   * intervals are independent of candle spacing, so the shade remains
+   * attached to the real session times while replay advances.
+   */
+  const sessionDefs: Array<{
+    name: SessionName;
+    window: [string, string];
+  }> = [
+    { name: "asia", window: sessions.asia },
+    { name: "london", window: sessions.london },
+    { name: "newyork", window: sessions.newyork },
+  ];
+
+  /*
+   * Start one NY calendar day before the visible range because Asia
+   * crosses midnight (for example 19:00 -> 02:00).
+   */
+  const first = dateParts(visibleFrom);
+  const last = dateParts(visibleTo);
+
+  const firstDate = addDays(first.year, first.month, first.day, -1);
+
+  const cursor = new Date(
+    Date.UTC(firstDate.year, firstDate.month - 1, firstDate.day),
+  );
+
+  const lastDate = new Date(
+    Date.UTC(last.year, last.month - 1, last.day),
+  );
+
+  while (cursor <= lastDate) {
+    const base = {
+      year: cursor.getUTCFullYear(),
+      month: cursor.getUTCMonth() + 1,
+      day: cursor.getUTCDate(),
+    };
+
+    for (const def of sessionDefs) {
+      const { start, end } = intervalFor(base, def.window);
+
+      if (end <= visibleFrom || start >= visibleTo) {
+        continue;
+      }
+
+      let high = -Infinity;
+      let low = Infinity;
+
+      for (const candle of candles) {
+        if (candle.time < start) continue;
+        if (candle.time >= end) break;
+
+        high = Math.max(high, candle.high);
+        low = Math.min(low, candle.low);
+      }
+
+      if (!Number.isFinite(high) || !Number.isFinite(low)) {
+        continue;
+      }
+
+      const x1 = xForTime(start);
+      const x2 = xForTime(end);
+
+      const yHigh = coords.priceToY(high);
+      const yLow = coords.priceToY(low);
+
+      if (
+        x1 === null ||
+        x2 === null ||
+        yHigh === null ||
+        yLow === null ||
+        x2 <= x1
+      ) {
+        continue;
+      }
+
+      sessionSegs.push({
         x1,
         x2,
-        s: session,
-        tw,
-      };
+        y1: Math.min(yHigh, yLow),
+        y2: Math.max(yHigh, yLow),
+        s: def.name,
+      });
     }
+
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
-  if (cur) {
-    segs.push(cur);
+  /*
+   * Trading-window marker uses the same exact NY timestamp approach.
+   */
+  if (showTradingWindow) {
+    const twFirst = addDays(first.year, first.month, first.day, -1);
+
+    const twCursor = new Date(
+      Date.UTC(twFirst.year, twFirst.month - 1, twFirst.day),
+    );
+
+    while (twCursor <= lastDate) {
+      const base = {
+        year: twCursor.getUTCFullYear(),
+        month: twCursor.getUTCMonth() + 1,
+        day: twCursor.getUTCDate(),
+      };
+
+      const { start, end } = intervalFor(
+        base,
+        sessions.tradingWindow,
+      );
+
+      if (end > visibleFrom && start < visibleTo) {
+        const x1 = xForTime(start);
+        const x2 = xForTime(end);
+
+        if (x1 !== null && x2 !== null && x2 > x1) {
+          tradingSegs.push({ x1, x2 });
+        }
+      }
+
+      twCursor.setUTCDate(twCursor.getUTCDate() + 1);
+    }
   }
 
   const fill: Record<SessionName, string> = {
@@ -625,31 +740,32 @@ function SessionBands({
 
   return (
     <g style={{ pointerEvents: "none" }}>
-      {segs.map((s, i) => (
-        <g key={i}>
-          {showSessions && s.s !== "off" && (
-            <rect
-              x={s.x1}
-              y={0}
-              width={Math.max(0, s.x2 - s.x1)}
-              height={height}
-              fill={fill[s.s]}
-              fillOpacity={0.18}
-            />
-          )}
+      {showSessions &&
+        sessionSegs.map((s, i) => (
+          <rect
+            key={`session-${i}`}
+            x={s.x1}
+            y={s.y1}
+            width={Math.max(0, s.x2 - s.x1)}
+            height={Math.max(0, s.y2 - s.y1)}
+            fill={fill[s.s]}
+            fillOpacity={0.18}
+          />
+        ))}
 
-          {showTradingWindow && s.tw && (
-            <rect
-              x={s.x1}
-              y={0}
-              width={Math.max(0, s.x2 - s.x1)}
-              height={3}
-              fill="#F5B942"
-              fillOpacity={0.95}
-            />
-          )}
-        </g>
-      ))}
+      {showTradingWindow &&
+        tradingSegs.map((s, i) => (
+          <rect
+            key={`trading-${i}`}
+            x={s.x1}
+            y={0}
+            width={Math.max(0, s.x2 - s.x1)}
+            height={3}
+            fill="#F5B942"
+            fillOpacity={0.95}
+          />
+        ))}
     </g>
   );
 }
+

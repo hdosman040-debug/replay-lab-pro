@@ -9,7 +9,7 @@ export interface Drawing {
   id: string;
   kind: DrawingKind;
   toolId: string;
-  /** anchor points: hline: [p], ray/text/marker: [p], line/arrow/rect: [p1, p2] */
+  /** anchor points: hline: [p], ray: [start, end], text/marker: [p], line/arrow/rect: [p1, p2] */
   points: PricePoint[];
   color: string;
   label?: string | undefined;
@@ -42,17 +42,17 @@ const GEN = "var(--info)";
 
 export const TOOLS: ToolDef[] = [
   // Liquidity — horizontal rays from the tap point
-  { id: "bsl", label: "Buy-side liquidity", short: "BSL", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "BSL", extendRight: true },
-  { id: "ssl", label: "Sell-side liquidity", short: "SSL", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "SSL", extendRight: true },
-  { id: "pdh", label: "Previous day high", short: "PDH", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "PDH", extendRight: true },
-  { id: "pdl", label: "Previous day low", short: "PDL", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "PDL", extendRight: true },
-  { id: "asia-h", label: "Asia high", short: "AsH", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "Asia H", extendRight: true },
-  { id: "asia-l", label: "Asia low", short: "AsL", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "Asia L", extendRight: true },
-  { id: "ldn-h", label: "London high", short: "LdH", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "London H", extendRight: true },
-  { id: "ldn-l", label: "London low", short: "LdL", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "London L", extendRight: true },
-  { id: "ses-h", label: "Session high", short: "SsH", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "Session H", extendRight: true },
-  { id: "ses-l", label: "Session low", short: "SsL", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "Session L", extendRight: true },
-  { id: "liq", label: "Custom liquidity", short: "LIQ", kind: "ray", group: "liquidity", color: LIQ, defaultLabel: "LIQ", extendRight: true },
+  { id: "bsl", label: "Buy-side liquidity", short: "BSL", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "ssl", label: "Sell-side liquidity", short: "SSL", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "pdh", label: "Previous day high", short: "PDH", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "pdl", label: "Previous day low", short: "PDL", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "asia-h", label: "Asia high", short: "AsH", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "asia-l", label: "Asia low", short: "AsL", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "ldn-h", label: "London high", short: "LdH", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "ldn-l", label: "London low", short: "LdL", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "ses-h", label: "Session high", short: "SsH", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "ses-l", label: "Session low", short: "SsL", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
+  { id: "liq", label: "Custom liquidity", short: "LIQ", kind: "ray", group: "liquidity", color: LIQ, extendRight: true },
   // Structure — labels at swing points
   { id: "hh", label: "Higher high", short: "HH", kind: "marker", group: "structure", color: STR, defaultLabel: "HH", markerDir: "up" },
   { id: "hl", label: "Higher low", short: "HL", kind: "marker", group: "structure", color: STR, defaultLabel: "HL", markerDir: "down" },
@@ -87,5 +87,5 @@ export function getTool(id: string): ToolDef | undefined {
 }
 
 export function isTwoPoint(kind: DrawingKind) {
-  return kind === "line" || kind === "arrow" || kind === "rect";
+  return kind === "line" || kind === "arrow" || kind === "rect" || kind === "ray";
 }

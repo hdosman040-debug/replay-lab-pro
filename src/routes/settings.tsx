@@ -43,6 +43,16 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
   );
 }
 
+function formatSessionTime(value: string): string {
+  const [hour, minute] = value.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+
+  return `${h12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
 function WindowRow({
   label,
   value,
@@ -55,8 +65,34 @@ function WindowRow({
   return (
     <div className="flex items-center gap-2">
       <span className="flex-1 text-xs text-muted-foreground">{label}</span>
-      <input className="panel-input num w-24" type="time" value={value[0]} onChange={(e) => onChange([e.target.value, value[1]])} />
-      <input className="panel-input num w-24" type="time" value={value[1]} onChange={(e) => onChange([value[0], e.target.value])} />
+
+      <div className="flex items-center gap-1">
+        <input
+          className="panel-input num w-24"
+          type="time"
+          value={value[0]}
+          onChange={(e) => onChange([e.target.value, value[1]])}
+          aria-label={`${label} start time`}
+        />
+        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+          {formatSessionTime(value[0])}
+        </span>
+      </div>
+
+      <span className="text-xs text-muted-foreground">→</span>
+
+      <div className="flex items-center gap-1">
+        <input
+          className="panel-input num w-24"
+          type="time"
+          value={value[1]}
+          onChange={(e) => onChange([value[0], e.target.value])}
+          aria-label={`${label} end time`}
+        />
+        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+          {formatSessionTime(value[1])}
+        </span>
+      </div>
     </div>
   );
 }

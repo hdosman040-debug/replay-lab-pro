@@ -38,7 +38,7 @@ export function zonedParts(utcSeconds: number, tz = DEFAULT_TZ): ZonedParts {
     minute: "2-digit",
     second: "2-digit",
     weekday: "short",
-    hour12: false,
+    hour12: true,
   }).formatToParts(new Date(utcSeconds * 1000));
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "0";
   return {
@@ -81,7 +81,7 @@ export function minutesOfDay(utcSeconds: number, tz = DEFAULT_TZ): number {
 }
 
 export function fmtTime(utcSeconds: number, tz = DEFAULT_TZ): string {
-  return dtf(tz, { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(utcSeconds * 1000));
+  return dtf(tz, { hour: "2-digit", minute: "2-digit", hour12: true }).format(new Date(utcSeconds * 1000));
 }
 
 export function fmtDate(utcSeconds: number, tz = DEFAULT_TZ): string {
@@ -114,9 +114,9 @@ export interface SessionWindows {
 }
 
 export const DEFAULT_SESSIONS: SessionWindows = {
-  asia: ["19:00", "02:00"],
-  london: ["02:00", "08:00"],
-  newyork: ["08:00", "16:00"],
+  asia: ["20:00", "02:00"],
+  london: ["03:30", "11:30"],
+  newyork: ["09:30", "16:00"],
   tradingWindow: ["09:45", "12:00"],
 };
 
