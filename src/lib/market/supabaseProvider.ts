@@ -8,12 +8,25 @@ import type {
 } from "./types";
 import { TF_SECONDS, floorToTf } from "./types";
 import { aggregateCandles } from "./aggregate";
+import { zonedToUtc } from "../time/ny";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 const BUCKET = "market-data-file";
 const ROOT = "US30/M1";
+
+/**
+ * How CSV timestamps are interpreted:
+ *  "utc" (default) - timestamps are UTC
+ *  "ny7"           - broker server time = New York + 7h (MT4/MT5 style)
+ * Set VITE_CSV_TIME_MODE=ny7 to enable.
+ */
+const CSV_TIME_MODE =
+  (import.meta.env.VITE_CSV_TIME_MODE as string | undefined) === "ny7" ? "ny7" : "utc";
+
+/** Month files are split by broker time, so load neighbours when converting. */
+const MONTH_PAD_SECONDS = CSV_TIME_MODE === "ny7" ? 86400 : 0;
 
 /**
  * Maximum number of monthly M1 files kept in memory.
@@ -53,7 +66,18 @@ function parseDateTime(value: string): number {
     throw new Error(`Invalid DateTime: ${value}`);
   }
 
-  return Math.floor(ms / 1000);
+  const wall = Math.floor(ms / 1000);
+  if (CSV_TIME_MODE === "ny7") {
+    const d = new Date((wall - 7 * 3600) * 1000); // -> New York wall clock
+    return zonedToUtc(
+      d.getUTCFullYear(),
+      d.getUTCMonth() + 1,
+      d.getUTCDate(),
+      d.getUTCHours(),
+      d.getUTCMinutes(),
+    );
+  }
+  return wall;
 }
 
 function parseCsv(text: string): Candle[] {
@@ -304,7 +328,7 @@ async function loadMonth(year: number, month: number): Promise<Candle[]> {
 async function loadM1Range(from: number, to: number): Promise<Candle[]> {
   if (to <= from) return [];
 
-  const months = monthsBetween(from, to);
+  const months = monthsBetween(from - MONTH_PAD_SECONDS, to + MONTH_PAD_SECONDS);
 
   const chunks = await Promise.all(
     months.map(({ year, month }) => loadMonth(year, month)),
