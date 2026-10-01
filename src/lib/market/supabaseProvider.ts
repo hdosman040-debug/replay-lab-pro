@@ -43,9 +43,11 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   );
 }
 
+// Market data stays on the anonymous role: no login session is attached.
 const supabase: SupabaseClient = createClient(
   SUPABASE_URL ?? "",
   SUPABASE_ANON_KEY ?? "",
+  { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
 );
 
 function parseNumber(value: string): number {
