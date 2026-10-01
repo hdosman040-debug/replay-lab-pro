@@ -162,18 +162,23 @@ export async function loadReplayHistoryBefore(
   const safeCount = Math.max(1, Math.floor(count));
   const span = safeCount * tfs;
 
-  // Extra padding helps around weekends/session gaps.
-  const from =
-    before -
-    span -
-    Math.max(2 * DAY, Math.ceil(span / (5 * DAY)) * 2 * DAY);
-
-  const older = await provider.getCandles({
-    symbol: prev.symbol,
-    timeframe: tf,
-    from,
-    to: before,
-  });
+  // Widen the lookback window until real candles are found, so long gaps
+  // (holidays, weekends) don't leave the chart stuck on short timeframes.
+  const bounds = await provider.getBounds(prev.symbol, tf);
+  const earliest = bounds?.earliest ?? 0;
+  let pad = Math.max(2 * DAY, Math.ceil(span / (5 * DAY)) * 2 * DAY);
+  let older: Candle[] = [];
+  while (true) {
+    const from = Math.max(earliest, before - span - pad);
+    older = await provider.getCandles({
+      symbol: prev.symbol,
+      timeframe: tf,
+      from,
+      to: before,
+    });
+    if (older.length > 0 || from <= earliest) break;
+    pad *= 2;
+  }
 
   // Never return anything at/after the requested boundary.
   return older
