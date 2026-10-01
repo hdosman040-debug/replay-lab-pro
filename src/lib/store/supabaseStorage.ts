@@ -96,6 +96,52 @@ async function flushKey(k: string): Promise<void> {
   }
 }
 
+type Persisted = { state?: Record<string, unknown>; version?: number };
+
+function parsePersisted(text: string): Persisted | null {
+  try {
+    const v: unknown = JSON.parse(text);
+    return v && typeof v === "object" ? (v as Persisted) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fold on-device data from before logins existed into the cloud copy (cloud wins). */
+function mergeLegacy(cloudText: string, legacyText: string): string | null {
+  const cloud = parsePersisted(cloudText);
+  const legacy = parsePersisted(legacyText);
+  if (!cloud?.state || !legacy?.state) return null;
+
+  const state: Record<string, unknown> = { ...cloud.state };
+  let changed = false;
+
+  const cs = cloud.state["sessions"];
+  const ls = legacy.state["sessions"];
+  if (ls && typeof ls === "object" && !Array.isArray(ls)) {
+    const base = cs && typeof cs === "object" ? (cs as Record<string, unknown>) : {};
+    const missing = Object.entries(ls as Record<string, unknown>).filter(([id]) => !(id in base));
+    if (missing.length > 0) {
+      state["sessions"] = { ...Object.fromEntries(missing), ...base };
+      changed = true;
+    }
+  }
+
+  const cr = cloud.state["records"];
+  const lr = legacy.state["records"];
+  if (Array.isArray(lr)) {
+    const base = Array.isArray(cr) ? (cr as Array<{ id?: unknown }>) : [];
+    const have = new Set(base.map((r) => r.id));
+    const extra = (lr as Array<{ id?: unknown }>).filter((r) => !have.has(r.id));
+    if (extra.length > 0) {
+      state["records"] = [...base, ...extra];
+      changed = true;
+    }
+  }
+
+  return changed ? JSON.stringify({ ...cloud, state }) : null;
+}
+
 /** Push every queued save now (used before sign-out and when the tab hides). */
 export async function flushPendingSaves(): Promise<void> {
   await Promise.all([...pending.keys()].map((k) => flushKey(k)));
@@ -132,8 +178,17 @@ export const supabaseStorage: StateStorage = {
       if (error) throw error;
 
       if (data) {
-        localSet(cacheName(uid, name), data.value as string);
-        return data.value as string;
+        let value = data.value as string;
+        if (localGet(LEGACY_FLAG) === null) {
+          const legacy = localGet(name);
+          const merged = legacy === null ? null : mergeLegacy(value, legacy);
+          if (merged !== null && merged !== value) {
+            value = merged;
+            queueSave(uid, name, value);
+          }
+        }
+        localSet(cacheName(uid, name), value);
+        return value;
       }
 
       if (localGet(LEGACY_FLAG) === null) {

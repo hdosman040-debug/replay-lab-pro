@@ -144,7 +144,11 @@ export function AuthScreen() {
           className="panel-input"
           type="email"
           required
-          autoComplete="email"
+          name="email"
+          id="email"
+          autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -155,6 +159,8 @@ export function AuthScreen() {
             type="password"
             required
             minLength={8}
+            name="password"
+            id="password"
             autoComplete={mode === "signup" ? "new-password" : "current-password"}
             placeholder={mode === "signup" ? "Password (8+ characters)" : "Password"}
             value={password}
@@ -223,6 +229,8 @@ export function NewPasswordScreen() {
           type="password"
           required
           minLength={8}
+          name="new-password"
+          id="new-password"
           autoComplete="new-password"
           placeholder="New password (8+ characters)"
           value={password}
