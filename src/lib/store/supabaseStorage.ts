@@ -1,24 +1,16 @@
 import type { StateStorage } from "zustand/middleware";
 
-import { useAuthStore } from "@/lib/auth/authStore";
+import { OWNER_ID } from "@/lib/owner";
 import { supabase } from "@/lib/supabaseClient";
 
 const TABLE = "user_state";
 const SAVE_DELAY_MS = 1500;
 const RETRY_DELAY_MS = 8000;
-const LEGACY_FLAG = "replay-lab-pro.legacy-migrated";
 
-type Pending = { uid: string; name: string; value: string };
-
-const pending = new Map<string, Pending>();
+const pending = new Map<string, string>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
-const pendingKey = (uid: string, name: string) => `${uid}|${name}`;
-const cacheName = (uid: string, name: string) => `u:${uid}:${name}`;
-
-function currentUserId(): string | null {
-  return useAuthStore.getState().user?.id ?? null;
-}
+const cacheName = (name: string) => `cache:${name}`;
 
 function localGet(key: string): string | null {
   try {
@@ -32,7 +24,7 @@ function localSet(key: string, value: string): void {
   try {
     if (typeof localStorage !== "undefined") localStorage.setItem(key, value);
   } catch {
-    /* local copy is only an offline cache */
+    /* offline cache only */
   }
 }
 
@@ -44,112 +36,48 @@ function localRemove(key: string): void {
   }
 }
 
-function schedule(k: string, delay: number): void {
-  const existing = timers.get(k);
+function schedule(name: string, delay: number): void {
+  const existing = timers.get(name);
   if (existing) clearTimeout(existing);
   timers.set(
-    k,
+    name,
     setTimeout(() => {
-      void flushKey(k);
+      void flushKey(name);
     }, delay),
   );
 }
 
-function queueSave(uid: string, name: string, value: string): void {
-  const k = pendingKey(uid, name);
-  pending.set(k, { uid, name, value });
-  schedule(k, SAVE_DELAY_MS);
+function queueSave(name: string, value: string): void {
+  pending.set(name, value);
+  schedule(name, SAVE_DELAY_MS);
 }
 
-async function flushKey(k: string): Promise<void> {
-  const timer = timers.get(k);
+async function flushKey(name: string): Promise<void> {
+  const timer = timers.get(name);
   if (timer) {
     clearTimeout(timer);
-    timers.delete(k);
+    timers.delete(name);
   }
-
-  const entry = pending.get(k);
-  if (!entry) return;
-  pending.delete(k);
-
-  // Never write another account's data into the current session.
-  if (currentUserId() !== entry.uid) {
-    console.warn("[supabaseStorage] dropped save for a signed-out account:", entry.name);
-    return;
-  }
+  const value = pending.get(name);
+  if (value === undefined) return;
+  pending.delete(name);
 
   try {
     const { error } = await supabase.from(TABLE).upsert(
-      {
-        user_id: entry.uid,
-        key: entry.name,
-        value: entry.value,
-        updated_at: new Date().toISOString(),
-      },
+      { user_id: OWNER_ID, key: name, value, updated_at: new Date().toISOString() },
       { onConflict: "user_id,key" },
     );
     if (error) throw error;
   } catch (error) {
-    console.error("[supabaseStorage] save failed:", entry.name, error);
-    if (!pending.has(k)) pending.set(k, entry);
-    schedule(k, RETRY_DELAY_MS);
+    console.error("[supabaseStorage] save failed:", name, error);
+    if (!pending.has(name)) pending.set(name, value);
+    schedule(name, RETRY_DELAY_MS);
   }
 }
 
-type Persisted = { state?: Record<string, unknown>; version?: number };
-
-function parsePersisted(text: string): Persisted | null {
-  try {
-    const v: unknown = JSON.parse(text);
-    return v && typeof v === "object" ? (v as Persisted) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Fold on-device data from before logins existed into the cloud copy (cloud wins). */
-function mergeLegacy(cloudText: string, legacyText: string): string | null {
-  const cloud = parsePersisted(cloudText);
-  const legacy = parsePersisted(legacyText);
-  if (!cloud?.state || !legacy?.state) return null;
-
-  const state: Record<string, unknown> = { ...cloud.state };
-  let changed = false;
-
-  const cs = cloud.state["sessions"];
-  const ls = legacy.state["sessions"];
-  if (ls && typeof ls === "object" && !Array.isArray(ls)) {
-    const base = cs && typeof cs === "object" ? (cs as Record<string, unknown>) : {};
-    const missing = Object.entries(ls as Record<string, unknown>).filter(([id]) => !(id in base));
-    if (missing.length > 0) {
-      state["sessions"] = { ...Object.fromEntries(missing), ...base };
-      changed = true;
-    }
-  }
-
-  const cr = cloud.state["records"];
-  const lr = legacy.state["records"];
-  if (Array.isArray(lr)) {
-    const base = Array.isArray(cr) ? (cr as Array<{ id?: unknown }>) : [];
-    const have = new Set(base.map((r) => r.id));
-    const extra = (lr as Array<{ id?: unknown }>).filter((r) => !have.has(r.id));
-    if (extra.length > 0) {
-      state["records"] = [...base, ...extra];
-      changed = true;
-    }
-  }
-
-  return changed ? JSON.stringify({ ...cloud, state }) : null;
-}
-
-/** Push every queued save now (used before sign-out and when the tab hides). */
+/** Push every queued save now (used when the tab hides). */
 export async function flushPendingSaves(): Promise<void> {
-  await Promise.all([...pending.keys()].map((k) => flushKey(k)));
-}
-
-/** Called once the first account has adopted any pre-login local data. */
-export function markLegacyMigrated(): void {
-  localSet(LEGACY_FLAG, "1");
+  await Promise.all([...pending.keys()].map((n) => flushKey(n)));
 }
 
 if (typeof document !== "undefined") {
@@ -158,76 +86,45 @@ if (typeof document !== "undefined") {
   });
 }
 
-/**
- * Zustand storage backed by the per-user Supabase `user_state` table.
- * - Supabase is the source of truth; localStorage is a per-account offline cache.
- * - The first account on a device adopts data recorded before logins existed.
- * - Writes are batched, and ignored while signed out.
- */
+/** Zustand storage: Supabase is the source of truth, localStorage is an offline cache. */
 export const supabaseStorage: StateStorage = {
   getItem: async (name) => {
-    const uid = currentUserId();
-    if (!uid) return null;
-
     try {
       const { data, error } = await supabase
         .from(TABLE)
         .select("value")
+        .eq("user_id", OWNER_ID)
         .eq("key", name)
         .maybeSingle();
       if (error) throw error;
-
       if (data) {
-        let value = data.value as string;
-        if (localGet(LEGACY_FLAG) === null) {
-          const legacy = localGet(name);
-          const merged = legacy === null ? null : mergeLegacy(value, legacy);
-          if (merged !== null && merged !== value) {
-            value = merged;
-            queueSave(uid, name, value);
-          }
-        }
-        localSet(cacheName(uid, name), value);
+        const value = data.value as string;
+        localSet(cacheName(name), value);
         return value;
       }
-
-      if (localGet(LEGACY_FLAG) === null) {
-        const legacy = localGet(name);
-        if (legacy !== null) {
-          localSet(cacheName(uid, name), legacy);
-          queueSave(uid, name, legacy);
-          return legacy;
-        }
-      }
-
-      return localGet(cacheName(uid, name));
+      const cached = localGet(cacheName(name));
+      if (cached !== null) queueSave(name, cached);
+      return cached;
     } catch (error) {
       console.error("[supabaseStorage] load failed, using local copy:", name, error);
-      return localGet(cacheName(uid, name));
+      return localGet(cacheName(name));
     }
   },
 
   setItem: (name, value) => {
-    const uid = currentUserId();
-    if (!uid) return;
-    localSet(cacheName(uid, name), value);
-    queueSave(uid, name, value);
+    localSet(cacheName(name), value);
+    queueSave(name, value);
   },
 
   removeItem: async (name) => {
-    const uid = currentUserId();
-    if (!uid) return;
-
-    localRemove(cacheName(uid, name));
-    const k = pendingKey(uid, name);
-    pending.delete(k);
-    const timer = timers.get(k);
+    localRemove(cacheName(name));
+    pending.delete(name);
+    const timer = timers.get(name);
     if (timer) {
       clearTimeout(timer);
-      timers.delete(k);
+      timers.delete(name);
     }
-
-    const { error } = await supabase.from(TABLE).delete().eq("key", name);
+    const { error } = await supabase.from(TABLE).delete().eq("user_id", OWNER_ID).eq("key", name);
     if (error) console.error("[supabaseStorage] delete failed:", name, error);
   },
 };
