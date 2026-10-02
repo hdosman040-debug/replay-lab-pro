@@ -2,9 +2,43 @@ import type { Provider } from "@supabase/supabase-js";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { useAuthStore } from "@/lib/auth/authStore";
-import { supabase } from "@/lib/supabaseClient";
+import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 
 type Mode = "signin" | "signup" | "forgot";
+
+type PasswordCredentialCtor = new (data: { id: string; password: string }) => Credential;
+
+/** Asks the browser to offer saving this login (Chrome / Google Password Manager). */
+async function savePassword(id: string, password: string): Promise<void> {
+  try {
+    const Ctor = (window as unknown as { PasswordCredential?: PasswordCredentialCtor })
+      .PasswordCredential;
+    if (!Ctor || !id || !password || !navigator.credentials) return;
+    await navigator.credentials.store(new Ctor({ id, password }));
+  } catch {
+    /* browser declined; ignore */
+  }
+}
+
+const CONFIG_ERROR =
+  "Server config missing: set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then redeploy.";
+
+function friendlyError(err: unknown, fallback = "Something went wrong. Try again."): string {
+  const msg = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  const m = msg.toLowerCase();
+  if (m.includes("invalid login credentials")) return "Wrong email or password.";
+  if (m.includes("email not confirmed"))
+    return "Email not confirmed yet. Open the link we sent you, then sign in.";
+  if (m.includes("already registered") || m.includes("already been registered"))
+    return "That email already has an account. Sign in instead.";
+  if (m.includes("failed to fetch") || m.includes("load failed") || m.includes("network"))
+    return "Network error. Check your connection and try again.";
+  if (m.includes("rate limit") || m.includes("too many"))
+    return "Too many attempts. Wait a few minutes and try again.";
+  if (m.includes("unsupported provider") || m.includes("not enabled"))
+    return "That sign-in provider is not enabled yet.";
+  return msg || fallback;
+}
 
 const SOCIAL: ReadonlyArray<{ id: string; label: string }> = [
   { id: "github", label: "GitHub" },
@@ -176,6 +210,10 @@ export function AuthScreen() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!isSupabaseConfigured) {
+      setError(CONFIG_ERROR);
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -193,6 +231,9 @@ export function AuthScreen() {
           options: { emailRedirectTo: window.location.origin },
         });
         if (authError) throw authError;
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          throw new Error("That email is already registered. Sign in instead.");
+        }
         if (!data.session) {
           setNotice("Check your email and open the confirmation link, then sign in.");
         }
@@ -203,14 +244,19 @@ export function AuthScreen() {
         if (authError) throw authError;
         setNotice("If that email has an account, a reset link is on its way.");
       }
+      if (mode !== "forgot") void savePassword(email.trim(), password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(friendlyError(err));
     } finally {
       setBusy(false);
     }
   }
 
   async function onSocial(id: string) {
+    if (!isSupabaseConfigured) {
+      setError(CONFIG_ERROR);
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -219,7 +265,7 @@ export function AuthScreen() {
       options: { redirectTo: window.location.origin },
     });
     if (authError) {
-      setError(authError.message);
+      setError(friendlyError(authError));
       setBusy(false);
     }
   }
@@ -277,7 +323,7 @@ export function AuthScreen() {
         </>
       )}
 
-      <form className="space-y-3" onSubmit={(e) => void onSubmit(e)}>
+      <form key={mode} className="space-y-3" onSubmit={(e) => void onSubmit(e)}>
         <input
           className="panel-input w-full"
           type="email"
@@ -338,6 +384,7 @@ export function AuthScreen() {
 }
 
 export function NewPasswordScreen() {
+  const email = useAuthStore((s) => s.user?.email ?? "");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -349,9 +396,10 @@ export function NewPasswordScreen() {
     try {
       const { error: authError } = await supabase.auth.updateUser({ password });
       if (authError) throw authError;
+      void savePassword(email, password);
       useAuthStore.setState({ recovery: false });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update the password.");
+      setError(friendlyError(err, "Could not update the password."));
     } finally {
       setBusy(false);
     }
@@ -360,6 +408,16 @@ export function NewPasswordScreen() {
   return (
     <Frame title="Choose a new password" subtitle="You opened a password reset link">
       <form className="space-y-3" onSubmit={(e) => void onSubmit(e)}>
+        <input
+          type="email"
+          name="email"
+          autoComplete="username"
+          value={email}
+          readOnly
+          tabIndex={-1}
+          aria-hidden="true"
+          className="sr-only"
+        />
         <PasswordInput
           name="new-password"
           id="new-password"
