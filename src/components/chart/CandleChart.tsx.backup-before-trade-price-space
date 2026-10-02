@@ -30,7 +30,6 @@ interface Props {
   onClickEmpty?: () => void;
   onVisibleRangeChange?: (fromLogical: number) => void;
   onCrosshairPrice?: (price: number | null) => void;
-  reserveVerticalSpace?: boolean;
   children?: ReactNode;
 }
 
@@ -84,7 +83,6 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     onClickEmpty,
     onVisibleRangeChange,
     onCrosshairPrice,
-    reserveVerticalSpace = false,
     children,
   },
   ref,
@@ -162,7 +160,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
         borderColor: border,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 15,
+        rightOffset: 6,
         barSpacing: 8,
         minBarSpacing: 1.5,
         tickMarkFormatter: (t: UTCTimestamp) => {
@@ -235,14 +233,6 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
       prevRef.current = [];
     };
   }, []);
-
-  useEffect(() => {
-    chartRef.current?.priceScale("right").applyOptions({
-      scaleMargins: reserveVerticalSpace
-        ? { top: 0.2, bottom: 0.2 }
-        : { top: 0.04, bottom: 0.04 },
-    });
-  }, [reserveVerticalSpace]);
 
   // Feed the complete causal candle set to the chart.
   // Replay advances trim candles from the left, so the newest candle

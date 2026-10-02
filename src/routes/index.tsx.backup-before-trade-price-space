@@ -374,7 +374,6 @@ function Workspace() {
             candles={candles}
             barSeconds={TF_SECONDS[viewTf]}
             timezone={tz}
-            reserveVerticalSpace={!!session.trade}
             onClickEmpty={() => ui.setSelectedDrawing(null)}
             onVisibleRangeChange={loadMoreHistory}
             onCrosshairPrice={ui.setCrosshairPrice}
