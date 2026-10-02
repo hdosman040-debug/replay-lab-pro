@@ -373,11 +373,12 @@ function Workspace() {
             ref={chartRef}
             candles={candles}
             barSeconds={TF_SECONDS[viewTf]}
+            symbol={session.symbol}
+            timeframe={viewTf}
             timezone={tz}
             reserveVerticalSpace={!!session.trade}
             onClickEmpty={() => ui.setSelectedDrawing(null)}
             onVisibleRangeChange={loadMoreHistory}
-            onCrosshairPrice={ui.setCrosshairPrice}
           >
             <DrawingOverlay
               drawings={session.drawings}

@@ -430,7 +430,8 @@ function Shape({
       const h = Math.abs(p1.y - p0.y);
       return (
         <g>
-          <rect x={x} y={y} width={w} height={h} fill={color} fillOpacity={0.16} stroke={color} strokeWidth={selected ? 2 : 1} style={{ pointerEvents: pe }} onPointerDown={onDown} />
+          <rect x={x} y={y} width={w} height={h} fill={color} fillOpacity={0.16} stroke={color} strokeWidth={selected ? 2 : 1} style={{ pointerEvents: "none" }} />
+          <rect x={x} y={y} width={w} height={h} fill="transparent" stroke="transparent" strokeWidth={22} style={{ pointerEvents: pe === "none" ? "none" : selected ? "all" : "stroke" }} onPointerDown={onDown} />
           {d.label && <Tag x={x + 4} y={y + 14} text={d.label} color={color} />}
           {handles}
         </g>
@@ -569,7 +570,7 @@ function SessionBands({
     };
   };
 
-  const intervalFor = (
+  const intervalForRaw = (
     base: { year: number; month: number; day: number },
     window: [string, string],
   ) => {
@@ -603,6 +604,19 @@ function SessionBands({
     );
 
     return { start, end };
+  };
+  const intervalFor = (
+    base: { year: number; month: number; day: number },
+    window: [string, string],
+  ) => {
+    const key = `${timezone}|${base.year}-${base.month}-${base.day}|${window[0]}-${window[1]}`;
+    let hit = intervalCache.get(key);
+    if (!hit) {
+      if (intervalCache.size > 4000) intervalCache.clear();
+      hit = intervalForRaw(base, window);
+      intervalCache.set(key, hit);
+    }
+    return hit;
   };
 
   const xForTime = (time: number) => {
@@ -661,8 +675,8 @@ function SessionBands({
       let low = Infinity;
       let firstIn = Infinity;
 
-      for (const candle of candles) {
-        if (candle.time < start) continue;
+      for (let ci = lowerBoundTime(candles, start); ci < candles.length; ci++) {
+        const candle = candles[ci]!;
         if (candle.time >= end) break;
 
         if (candle.time < firstIn) firstIn = candle.time;
@@ -797,3 +811,16 @@ function SessionBands({
   );
 }
 
+
+const intervalCache = new Map<string, { start: number; end: number }>();
+
+function lowerBoundTime(cs: Candle[], t: number) {
+  let lo = 0;
+  let hi = cs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cs[mid]!.time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}

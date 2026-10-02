@@ -266,13 +266,6 @@ export function useAdvance(
     try {
       const provider = getMarketDataProvider();
 
-      console.log("[Replay Advance] provider:", provider.id);
-      console.log("[Replay Advance] request:", {
-        symbol: s.symbol,
-        timeframe: tf,
-        horizon: s.currentTime,
-        n,
-      });
 
       const t = await advanceCandles(
         provider,
@@ -282,7 +275,6 @@ export function useAdvance(
         n,
       );
 
-      console.log("[Replay Advance] new horizon:", t);
       cb(t);
     } catch (error) {
       const message =

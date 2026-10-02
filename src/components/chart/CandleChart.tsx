@@ -2,14 +2,19 @@ import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  LineStyle,
+  TrackingModeExitMode,
   createChart,
   type IChartApi,
   type ISeriesApi,
+  type MouseEventParams,
+  type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { toPng } from "html-to-image";
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -18,15 +23,18 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { ChartContext, type CoordApi } from "./chartContext";
 import type { Candle } from "@/lib/market/types";
-import { fmtDate, fmtTime, zonedParts } from "@/lib/time/ny";
+import { fmtDate, fmtTime, tzOffsetSeconds } from "@/lib/time/ny";
 
 interface Props {
   candles: Candle[];
   barSeconds: number;
   timezone: string;
+  symbol?: string;
+  timeframe?: string;
   onClickEmpty?: () => void;
   onVisibleRangeChange?: (fromLogical: number) => void;
   onCrosshairPrice?: (price: number | null) => void;
@@ -38,10 +46,21 @@ export interface CandleChartHandle {
   captureSnapshot: () => Promise<Blob>;
 }
 
+/* ------------------------------------------------------------------ *
+ * Tuning knobs
+ * ------------------------------------------------------------------ */
+const PRICE_DECIMALS = 1;
+/** true = one-finger vertical drag pans price (TradingView). false = MT5-style, price only via axis. */
+const TOUCH_PRICE_PAN = false;
+const MIN_BAR_SPACING = 0.5;
+const MAX_BAR_SPACING = 40;
+/** frames the geometry loop keeps polling after the last change before it sleeps */
+const IDLE_FRAMES = 10;
+const WEEKDAY = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+
 /**
- * lightweight-charts has its own colour parser that only understands
- * hex / rgb(a) / hsl(a) / named colours. Our design tokens are `oklch(...)`,
- * so every value must be rasterised to rgba() before it reaches the chart.
+ * lightweight-charts only understands hex / rgb(a) / hsl(a) / named colours.
+ * Our design tokens are `oklch(...)`, so every value is rasterised to rgba().
  */
 let paintCtx: CanvasRenderingContext2D | null = null;
 function toRgb(value: string, fallback: string): string {
@@ -58,10 +77,7 @@ function toRgb(value: string, fallback: string): string {
     paintCtx.clearRect(0, 0, 1, 1);
     paintCtx.fillStyle = "#000";
     paintCtx.fillStyle = value;
-    if (paintCtx.fillStyle === "#000" && value !== "#000") {
-      // browser rejected the value outright
-      return fallback;
-    }
+    if (paintCtx.fillStyle === "#000" && value !== "#000") return fallback;
     paintCtx.clearRect(0, 0, 1, 1);
     paintCtx.fillRect(0, 0, 1, 1);
     const [r, g, b, a] = paintCtx.getImageData(0, 0, 1, 1).data;
@@ -76,11 +92,52 @@ function cssVar(name: string, fallback = "#808080") {
   return toRgb(raw, fallback);
 }
 
+/* ------------------------------------------------------------------ *
+ * Cheap timezone maths (no Intl in hot paths)
+ * UTC offsets only change on hour boundaries, so cache one per UTC hour.
+ * ------------------------------------------------------------------ */
+const offsetCache = new Map<string, Map<number, number>>();
+function offsetFor(t: number, tz: string): number {
+  let m = offsetCache.get(tz);
+  if (!m) {
+    m = new Map();
+    offsetCache.set(tz, m);
+  }
+  const bucket = Math.floor(t / 3600);
+  let v = m.get(bucket);
+  if (v === undefined) {
+    v = tzOffsetSeconds(bucket * 3600, tz);
+    m.set(bucket, v);
+  }
+  return v;
+}
+/** local calendar day number (days since 1970-01-01 in the given timezone) */
+function dayNo(t: number, tz: string): number {
+  return Math.floor((t + offsetFor(t, tz)) / 86400);
+}
+
+function lowerBound(cs: Candle[], t: number): number {
+  let lo = 0;
+  let hi = cs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cs[mid]!.time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+function indexAtTime(cs: Candle[], t: number): number {
+  const i = lowerBound(cs, t);
+  return cs[i]?.time === t ? i : -1;
+}
+
 export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleChart(
   {
     candles,
     barSeconds,
     timezone,
+    symbol,
+    timeframe,
     onClickEmpty,
     onVisibleRangeChange,
     onCrosshairPrice,
@@ -94,24 +151,61 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const prevRef = useRef<Candle[]>([]);
+  const prevBarSecondsRef = useRef(barSeconds);
   const candlesRef = useRef<Candle[]>(candles);
   candlesRef.current = candles;
+  const pumpRef = useRef<() => void>(() => {});
+  const dirtyRef = useRef(false);
+  const crosshairOnRef = useRef(false);
+  const legendRef = useRef<Array<HTMLElement | null>>([]);
   const [version, setVersion] = useState(0);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [showLatest, setShowLatest] = useState(false);
+  const [autoScaleOn, setAutoScaleOn] = useState(true);
   const cbRef = useRef({ onClickEmpty, onVisibleRangeChange, onCrosshairPrice });
   cbRef.current = { onClickEmpty, onVisibleRangeChange, onCrosshairPrice };
   const tzRef = useRef(timezone);
   tzRef.current = timezone;
+
+  /** OHLC legend is written straight to the DOM: no React render per crosshair move. */
+  const paintLegend = useCallback((index: number) => {
+    const els = legendRef.current;
+    const cs = candlesRef.current;
+    const c = index >= 0 ? cs[index] : undefined;
+    if (!c) {
+      for (const e of els) if (e) e.textContent = "";
+      return;
+    }
+    const base = index > 0 ? cs[index - 1]!.close : c.open;
+    const diff = c.close - base;
+    const pct = base !== 0 ? (diff / base) * 100 : 0;
+    const sign = diff >= 0 ? "+" : "";
+    const color = c.close >= c.open ? "var(--bull)" : "var(--bear)";
+    const vals = [c.open, c.high, c.low, c.close].map((v) => v.toFixed(PRICE_DECIMALS));
+    vals.push(`${sign}${diff.toFixed(PRICE_DECIMALS)} (${sign}${pct.toFixed(2)}%)`);
+    for (let i = 0; i < 5; i++) {
+      const e = els[i];
+      if (e) {
+        e.textContent = vals[i]!;
+        e.style.color = color;
+      }
+    }
+  }, []);
+
+  const goLatest = useCallback(() => {
+    chartRef.current?.timeScale().scrollToPosition(6, true);
+  }, []);
+  const enableAuto = useCallback(() => {
+    chartRef.current?.priceScale("right").applyOptions({ autoScale: true });
+    pumpRef.current();
+  }, []);
 
   useImperativeHandle(
     ref,
     () => ({
       captureSnapshot: async () => {
         const root = chartRootRef.current;
-
-        if (!root) {
-          throw new Error("Chart is not mounted.");
-        }
+        if (!root) throw new Error("Chart is not mounted.");
 
         // Wait one frame so the chart canvas/SVG overlays are fully painted.
         await new Promise<void>((resolve) => {
@@ -122,6 +216,11 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
           cacheBust: true,
           pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
           backgroundColor: getComputedStyle(root).backgroundColor || "#070A0F",
+          // floating UI buttons must not appear in journal snapshots
+          filter: (node) => {
+            const ds = (node as HTMLElement).dataset;
+            return !(ds && ds.noSnap !== undefined);
+          },
         });
 
         const response = await fetch(dataUrl);
@@ -152,37 +251,53 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
         fontSize: 11,
         attributionLogo: false,
       },
-      grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+      // MT5-style dotted grid
+      grid: {
+        vertLines: { color: grid, style: LineStyle.Dotted },
+        horzLines: { color: grid, style: LineStyle.Dotted },
+      },
       rightPriceScale: {
         borderColor: border,
         scaleMargins: { top: 0.04, bottom: 0.04 },
         entireTextOnly: true,
+        minimumWidth: 58, // stable axis width -> overlay width never jumps
       },
       timeScale: {
         borderColor: border,
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 15,
-        barSpacing: 8,
-        minBarSpacing: 1.5,
+        barSpacing: 6,
+        minBarSpacing: MIN_BAR_SPACING,
+        maxBarSpacing: MAX_BAR_SPACING,
         tickMarkFormatter: (t: UTCTimestamp) => {
-          const p = zonedParts(t, tzRef.current);
-          if (p.hour === 0 && p.minute === 0) return `${p.day}/${p.month}`;
-          return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+          const d = new Date(((t as number) + offsetFor(t as number, tzRef.current)) * 1000);
+          const h = d.getUTCHours();
+          const m = d.getUTCMinutes();
+          if (h === 0 && m === 0) return `${d.getUTCDate()}/${d.getUTCMonth() + 1}`;
+          return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
         },
       },
       localization: {
         timeFormatter: (t: UTCTimestamp) => `${fmtDate(t, tzRef.current)} ${fmtTime(t, tzRef.current)}`,
-        priceFormatter: (p: number) => p.toFixed(1),
+        priceFormatter: (p: number) => p.toFixed(PRICE_DECIMALS),
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: cross, width: 1, style: 3, labelBackgroundColor: surface3 },
-        horzLine: { color: cross, width: 1, style: 3, labelBackgroundColor: surface3 },
+        vertLine: { color: cross, width: 1, style: LineStyle.Dashed, labelBackgroundColor: surface3 },
+        horzLine: { color: cross, width: 1, style: LineStyle.Dashed, labelBackgroundColor: surface3 },
       },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      // long-press shows the crosshair and keeps it until the next tap (MT5 / TradingView mobile)
+      trackingMode: { exitMode: TrackingModeExitMode.OnNextTap },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: TOUCH_PRICE_PAN,
+      },
       handleScale: {
         axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: { time: true, price: true },
         mouseWheel: true,
         pinch: true,
       },
@@ -197,64 +312,124 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
       wickDownColor: bear,
       priceLineVisible: true,
       priceLineWidth: 1,
+      priceLineStyle: LineStyle.Dotted,
       lastValueVisible: true,
-      priceFormat: { type: "price", precision: 1, minMove: 0.1 },
+      priceFormat: { type: "price", precision: PRICE_DECIMALS, minMove: 1 / 10 ** PRICE_DECIMALS },
     });
     chartRef.current = chart;
     seriesRef.current = series;
 
-    const bump = () => setVersion((v) => v + 1);
+    /*
+     * Geometry loop. Replaces the old 250 ms setInterval.
+     * Runs only while something is changing (pan, zoom, kinetic scroll, axis drag,
+     * data tick), compares a few numbers per frame, and re-renders the overlays
+     * (synchronously, same frame as the canvas) only when they actually changed.
+     */
+    let raf = 0;
+    let idle = 0;
+    let disposed = false;
+    const sig = new Float64Array(6).fill(Number.NaN);
+    const next = new Float64Array(6);
+
+    const frame = () => {
+      raf = 0;
+      if (disposed) return;
+      const ts = chart.timeScale();
+      const range = ts.getVisibleLogicalRange();
+      const w = ts.width();
+      const h = chart.paneSize().height;
+      next[0] = range ? range.from : Number.NaN;
+      next[1] = range ? range.to : Number.NaN;
+      next[2] = series.coordinateToPrice(0) ?? Number.NaN;
+      next[3] = series.coordinateToPrice(h) ?? Number.NaN;
+      next[4] = w;
+      next[5] = h;
+      let changed = dirtyRef.current;
+      for (let i = 0; i < 6; i++) {
+        if (!Object.is(next[i], sig[i])) {
+          changed = true;
+          sig[i] = next[i]!;
+        }
+      }
+      if (changed) {
+        dirtyRef.current = false;
+        idle = 0;
+        const n = candlesRef.current.length;
+        const behind = !!range && n > 0 && range.to < n - 2;
+        const auto = chart.priceScale("right").options().autoScale;
+        flushSync(() => {
+          setSize((s) => (s.width === w && s.height === h ? s : { width: w, height: h }));
+          setShowLatest((v) => (v === behind ? v : behind));
+          setAutoScaleOn((v) => (v === auto ? v : auto));
+          setVersion((v) => v + 1);
+        });
+      } else {
+        idle++;
+      }
+      if (idle < IDLE_FRAMES) raf = requestAnimationFrame(frame);
+    };
+    const pump = () => {
+      idle = 0;
+      if (!raf && !disposed) raf = requestAnimationFrame(frame);
+    };
+    pumpRef.current = pump;
+
+    // bubble-phase listeners run after the chart's own handlers
+    const evts = ["pointerdown", "pointermove", "pointerup", "touchstart", "touchmove", "touchend", "wheel", "dblclick"] as const;
+    for (const e of evts) el.addEventListener(e, pump, { passive: true });
+
     chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
-      bump();
+      pump();
       if (r) cbRef.current.onVisibleRangeChange?.(r.from);
     });
+    chart.timeScale().subscribeSizeChange(pump);
     chart.subscribeClick(() => cbRef.current.onClickEmpty?.());
-    chart.subscribeCrosshairMove((p) => {
-      if (!p.point || !seriesRef.current) {
-        cbRef.current.onCrosshairPrice?.(null);
+    chart.subscribeCrosshairMove((p: MouseEventParams<Time>) => {
+      const cb = cbRef.current.onCrosshairPrice;
+      if (!p.point || p.time === undefined) {
+        crosshairOnRef.current = false;
+        paintLegend(candlesRef.current.length - 1);
+        cb?.(null);
         return;
       }
-      cbRef.current.onCrosshairPrice?.(seriesRef.current.coordinateToPrice(p.point.y));
+      crosshairOnRef.current = true;
+      paintLegend(indexAtTime(candlesRef.current, p.time as number));
+      if (cb) cb(series.coordinateToPrice(p.point.y));
     });
-    const ro = new ResizeObserver(() => {
-      const w = chart.timeScale().width();
-      const h = chart.paneSize().height;
-      setSize({ width: w, height: h });
-      bump();
-    });
+
+    const ro = new ResizeObserver(pump);
     ro.observe(el);
-    // price scale changes (autoscale) don't emit events — poll cheaply while mounted
-    const iv = window.setInterval(bump, 250);
+    pump();
 
     return () => {
+      disposed = true;
+      if (raf) cancelAnimationFrame(raf);
+      for (const e of evts) el.removeEventListener(e, pump);
       ro.disconnect();
-      window.clearInterval(iv);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
       prevRef.current = [];
+      pumpRef.current = () => {};
     };
-  }, []);
+  }, [paintLegend]);
 
   useEffect(() => {
     chartRef.current?.priceScale("right").applyOptions({
-      scaleMargins: reserveVerticalSpace
-        ? { top: 0.2, bottom: 0.2 }
-        : { top: 0.04, bottom: 0.04 },
+      scaleMargins: reserveVerticalSpace ? { top: 0.2, bottom: 0.2 } : { top: 0.04, bottom: 0.04 },
     });
+    pumpRef.current();
   }, [reserveVerticalSpace]);
 
-  // Feed the complete causal candle set to the chart.
-  // Replay advances trim candles from the left, so the newest candle
-  // must remain visible. History loading prepends candles, so that
-  // operation preserves the user's existing viewport.
+  // Feed the causal candle set to the chart.
+  //  - tail-only change (forming candle / one new candle) -> series.update(): O(1)
+  //  - anything else -> setData(), then restore a sensible viewport
   useEffect(() => {
     const series = seriesRef.current;
     const chart = chartRef.current;
     if (!series || !chart) return;
 
     const prev = prevRef.current;
-
     const toBar = (c: Candle) => ({
       time: c.time as UTCTimestamp,
       open: c.open,
@@ -266,24 +441,13 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     const keepRange = chart.timeScale().getVisibleLogicalRange();
     const first = candles[0];
     const prevFirst = prev[0];
-
-    // Replay lookback trimming:
-    // the new first candle is later than the old first candle.
-    // Follow the newest candle instead of restoring a stale viewport.
-    const replayTrim =
-      prev.length > 0 &&
-      first !== undefined &&
-      prevFirst !== undefined &&
-      first.time > prevFirst.time;
-
-    // History was prepended:
-    // preserve the same candles on screen by shifting their logical
-    // positions to account for the newly inserted candles.
     const lastNow = candles[candles.length - 1];
     const prevLast = prev[prev.length - 1];
 
+    const replayTrim =
+      prev.length > 0 && first !== undefined && prevFirst !== undefined && first.time > prevFirst.time;
+
     // Same newest candle => older candles were prepended (history scroll).
-    // A different newest candle means the clock jumped, not a prepend.
     const historyPrepended =
       prev.length > 0 &&
       first !== undefined &&
@@ -293,39 +457,61 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
       prevLast !== undefined &&
       lastNow.time === prevLast.time;
 
-    // Replay clock jumped backward: show the newest candle, don't shift an old viewport.
-    const jumpedBack =
-      lastNow !== undefined && prevLast !== undefined && lastNow.time < prevLast.time;
+    const jumpedBack = lastNow !== undefined && prevLast !== undefined && lastNow.time < prevLast.time;
 
-    series.setData(candles.map(toBar));
+    const sameHead =
+      prev.length > 0 &&
+      first !== undefined &&
+      prevFirst !== undefined &&
+      first.time === prevFirst.time &&
+      prevBarSecondsRef.current === barSeconds;
+    const grew = candles.length - prev.length;
+    const mid = Math.min(prev.length, candles.length) >> 1;
+    const tailOnly =
+      sameHead &&
+      lastNow !== undefined &&
+      prevLast !== undefined &&
+      (grew === 0 || grew === 1) &&
+      lastNow.time >= prevLast.time &&
+      candles[prev.length - 1]?.time === prevLast.time &&
+      candles[mid]?.time === prev[mid]?.time;
 
-    if (prev.length === 0) {
-      // Initial load.
-      chart.timeScale().scrollToPosition(6, false);
-    } else if (replayTrim || jumpedBack) {
-      // Replay is moving forward and the lookback window is sliding.
-      // Always keep the current/latest candle visible.
-      chart.timeScale().scrollToPosition(6, false);
-    } else if (historyPrepended && keepRange) {
-      const shift = countBefore(candles, prevFirst!.time);
+    if (tailOnly) {
+      if (grew === 1) series.update(toBar(candles[prev.length - 1]!)); // re-sync the previously forming bar
+      series.update(toBar(lastNow!));
+    } else {
+      series.setData(candles.map(toBar));
 
-      if (shift > 0) {
-        chart.timeScale().setVisibleLogicalRange({
-          from: keepRange.from + shift,
-          to: keepRange.to + shift,
-        });
+      if (prev.length === 0 || jumpedBack) {
+        chart.timeScale().scrollToPosition(6, false);
+      } else if (replayTrim) {
+        if (!keepRange || keepRange.to >= prev.length - 1) {
+          // following the live edge -> keep following
+          chart.timeScale().scrollToPosition(6, false);
+        } else {
+          // user panned back: hold the same candles under their finger
+          const trimmed = lowerBound(prev, first!.time);
+          chart.timeScale().setVisibleLogicalRange({
+            from: keepRange.from - trimmed,
+            to: keepRange.to - trimmed,
+          });
+        }
+      } else if (historyPrepended && keepRange) {
+        const shift = lowerBound(candles, prevFirst!.time);
+        if (shift > 0) {
+          chart.timeScale().setVisibleLogicalRange({
+            from: keepRange.from + shift,
+            to: keepRange.to + shift,
+          });
+        }
       }
     }
 
     prevRef.current = candles;
-    setVersion((v) => v + 1);
-
-    const w = chart.timeScale().width();
-    const h = chart.paneSize().height;
-    if (w !== size.width || h !== size.height) {
-      setSize({ width: w, height: h });
-    }
-
+    prevBarSecondsRef.current = barSeconds;
+    if (!crosshairOnRef.current) paintLegend(candles.length - 1);
+    dirtyRef.current = true;
+    pumpRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candles]);
 
@@ -397,79 +583,56 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, size, barSeconds]);
 
-  const daySeparators = useMemo(() => {
-    if (!coords || candles.length < 2) return [];
-
-    const weekday = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-    const result: Array<{
-      time: number;
-      x: number;
-      label: string;
-    }> = [];
-
-    // A separator belongs to the first revealed candle of the new
-    // calendar day in the configured market timezone. It is therefore
-    // anchored to market time and remains stable during replay/scroll/zoom.
-    let previous = zonedParts(candles[0]!.time, timezone);
-
+  // Day boundaries depend only on candles + timezone (cheap, cached offsets).
+  // They are anchored to market time and only use revealed candles, so replay stays causal.
+  const dayMarks = useMemo(() => {
+    const out: Array<{ time: number; label: string }> = [];
+    if (candles.length < 2) return out;
+    let prevDay = dayNo(candles[0]!.time, timezone);
     for (let i = 1; i < candles.length; i++) {
-      const candle = candles[i]!;
-      const current = zonedParts(candle.time, timezone);
-
-      const changed =
-        current.year !== previous.year ||
-        current.month !== previous.month ||
-        current.day !== previous.day;
-
-      if (changed) {
-        const x = coords.timeToX(candle.time);
-
-        if (x !== null) {
-          result.push({
-            time: candle.time,
-            x,
-            label: `${weekday[current.weekday]} ${current.day}`,
-          });
-        }
+      const t = candles[i]!.time;
+      const dn = dayNo(t, timezone);
+      if (dn !== prevDay) {
+        out.push({
+          time: t,
+          label: `${WEEKDAY[(dn + 4) % 7]} ${new Date(dn * 86400000).getUTCDate()}`,
+        });
+        prevDay = dn;
       }
-
-      previous = current;
     }
-
-    return result;
-  }, [candles, coords, timezone]);
+    return out;
+  }, [candles, timezone]);
 
   return (
     <ChartContext.Provider value={{ coords, version }}>
       <div
         ref={chartRootRef}
         className="relative h-full w-full overflow-hidden bg-surface"
+        style={{ touchAction: "none", overscrollBehavior: "none" }}
       >
         <div ref={containerRef} className="absolute inset-0 z-0" />
 
-        {/* Day separators are derived only from currently revealed candles.
-            This keeps replay causal: a future day cannot appear early. */}
-        <div
-          className="absolute inset-0 z-10 overflow-hidden"
-          style={{ pointerEvents: "none" }}
-        >
-          {daySeparators.map((separator) => (
-            <div
-              key={separator.time}
-              className="absolute top-0 bottom-0"
-              style={{ left: separator.x }}
-            >
-              <div
-                className="absolute top-2 bottom-0 border-l-2 border-solid"
-                style={{ borderColor: "rgba(234, 179, 8, 0.65)" }}
-              />
-              <div
-                className="absolute left-1 top-2 whitespace-nowrap rounded-sm bg-surface/90 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-muted-foreground"
-              >
-                {separator.label}
-              </div>
-            </div>
-          ))}
+        {/* Day separators: only the visible ones are rendered. */}
+        <div className="absolute inset-0 z-10 overflow-hidden" style={{ pointerEvents: "none" }}>
+          {coords &&
+            dayMarks.map((m) => {
+              if (m.time < coords.visibleFrom - barSeconds || m.time > coords.visibleTo + barSeconds) {
+                return null;
+              }
+              const x = coords.timeToX(m.time);
+              if (x === null || x < -1 || x > coords.width + 1) return null;
+              return (
+                <div key={m.time} className="absolute top-0 bottom-0" style={{ left: x }}>
+                  <div
+                    className="absolute top-2 bottom-0 border-l-2 border-solid"
+                    style={{ borderColor: "rgba(234, 179, 8, 0.65)" }}
+                  />
+                  <div className="absolute left-1 top-2 whitespace-nowrap rounded-sm bg-surface/90 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-muted-foreground">
+                    {m.label}
+                  </div>
+                </div>
+              );
+            })}
         </div>
 
         {/* Overlays must sit above the chart canvases; children opt back into
@@ -477,15 +640,63 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
         <div className="absolute inset-0 z-20" style={{ pointerEvents: "none" }}>
           {children}
         </div>
+
+        {/* HUD: OHLC legend + TradingView-style helper buttons */}
+        <div className="absolute inset-0 z-30" style={{ pointerEvents: "none" }}>
+          <div className="absolute left-2 top-1 flex max-w-[calc(100%-76px)] flex-wrap items-center gap-x-2 rounded bg-surface/70 px-1.5 py-0.5 font-mono text-[10.5px] leading-4 text-muted-foreground">
+            {symbol ? (
+              <span className="font-semibold" style={{ color: "var(--foreground)" }}>
+                {symbol}
+                {timeframe ? ` · ${timeframe}` : ""}
+              </span>
+            ) : null}
+            {(["O", "H", "L", "C"] as const).map((k, i) => (
+              <span key={k}>
+                {k}
+                <b
+                  ref={(el) => {
+                    legendRef.current[i] = el;
+                  }}
+                  className="ml-0.5 font-medium"
+                />
+              </span>
+            ))}
+            <b
+              ref={(el) => {
+                legendRef.current[4] = el;
+              }}
+              className="font-medium"
+            />
+          </div>
+
+          {showLatest && (
+            <button
+              type="button"
+              data-no-snap
+              aria-label="Jump to latest candle"
+              onClick={goLatest}
+              className="absolute bottom-9 right-[68px] flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface/90 text-base shadow"
+              style={{ pointerEvents: "auto", color: "var(--foreground)" }}
+            >
+              »
+            </button>
+          )}
+          {!autoScaleOn && (
+            <button
+              type="button"
+              data-no-snap
+              aria-label="Auto-scale price"
+              onClick={enableAuto}
+              className="absolute bottom-0.5 right-1 h-6 min-w-6 rounded border border-border bg-surface/90 px-1.5 text-[11px] font-semibold"
+              style={{ pointerEvents: "auto", color: "var(--foreground)" }}
+            >
+              A
+            </button>
+          )}
+        </div>
       </div>
     </ChartContext.Provider>
   );
 });
 
 CandleChart.displayName = "CandleChart";
-
-function countBefore(cs: Candle[], t: number) {
-  let i = 0;
-  while (i < cs.length && cs[i]!.time < t) i++;
-  return i;
-}

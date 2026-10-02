@@ -29,27 +29,37 @@ export interface ZonedParts {
 
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const PARTS_OPTS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  weekday: "short",
+  hourCycle: "h23",
+};
+const partsFmtCache = new Map<string, Intl.DateTimeFormat>();
+
 export function zonedParts(utcSeconds: number, tz = DEFAULT_TZ): ZonedParts {
-  const parts = dtf(tz, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    weekday: "short",
-    hourCycle: "h23",
-  }).formatToParts(new Date(utcSeconds * 1000));
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "0";
-  return {
-    year: +get("year"),
-    month: +get("month"),
-    day: +get("day"),
-    hour: +get("hour") % 24,
-    minute: +get("minute"),
-    second: +get("second"),
-    weekday: Math.max(0, WD.indexOf(get("weekday"))),
-  };
+  let f = partsFmtCache.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone: tz, ...PARTS_OPTS });
+    partsFmtCache.set(tz, f);
+  }
+  let year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, weekday = 0;
+  for (const p of f.formatToParts(new Date(utcSeconds * 1000))) {
+    switch (p.type) {
+      case "year": year = +p.value; break;
+      case "month": month = +p.value; break;
+      case "day": day = +p.value; break;
+      case "hour": hour = +p.value; break;
+      case "minute": minute = +p.value; break;
+      case "second": second = +p.value; break;
+      case "weekday": weekday = Math.max(0, WD.indexOf(p.value)); break;
+    }
+  }
+  return { year, month, day, hour: hour % 24, minute, second, weekday };
 }
 
 /** Offset (seconds) of tz from UTC at the given instant. */
