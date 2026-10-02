@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { supabaseStorage } from "./supabaseStorage";
 
 import type { JournalRecord } from "@/lib/backtest/types";
 
@@ -26,7 +25,7 @@ export const useJournalStore = create<JournalState>()(
     }),
     {
       name: "ict-terminal.journal.v1",
-      storage: createJSONStorage(() => supabaseStorage),
+      storage: createJSONStorage(() => localStorage),
       skipHydration: true,
     },
   ),

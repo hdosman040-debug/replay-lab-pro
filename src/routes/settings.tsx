@@ -6,9 +6,6 @@ import { SPEEDS } from "@/lib/replay/engine";
 import { TIMEFRAMES, type Timeframe } from "@/lib/market/types";
 import { useSettingsStore } from "@/lib/store/settingsStore";
 import { useStoresHydrated } from "@/lib/store/hydrate";
-import { accountName } from "@/lib/auth/accountName";
-import { signOut } from "@/lib/auth/actions";
-import { useAuthStore } from "@/lib/auth/authStore";
 import type { SessionWindows } from "@/lib/time/ny";
 
 export const Route = createFileRoute("/settings")({
@@ -105,7 +102,6 @@ function SettingsPage() {
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
   const reset = useSettingsStore((s) => s.reset);
-  const accountLabel = useAuthStore((s) => accountName(s.user));
   const setWindow = (k: keyof SessionWindows, v: [string, string]) =>
     update({ sessions: { ...settings.sessions, [k]: v } });
 
@@ -240,16 +236,6 @@ function SettingsPage() {
                 onChange={(e) => update({ traderName: e.target.value })}
               />
             </Field>
-            <p className="text-xs text-muted-foreground">
-              Signed in as {accountLabel}. Sessions, trades, drawings and journal sync to your account.
-            </p>
-            <button
-              type="button"
-              className="touch-btn w-full border border-border text-sm"
-              onClick={() => void signOut()}
-            >
-              Sign out
-            </button>
           </section>
 
           <button type="button" className="touch-btn w-full border border-border text-sm" onClick={reset}>

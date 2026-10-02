@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { supabaseStorage } from "./supabaseStorage";
 
 import { emptyAnalysis, rewindTrade, type Analysis, type ReplaySession, type TradePlan, type WorkflowStepId } from "@/lib/backtest/types";
 import type { Drawing } from "@/lib/drawings/types";
@@ -160,7 +159,7 @@ export const useSessionStore = create<SessionState>()(
     },
     {
       name: "ict-terminal.sessions.v1",
-      storage: createJSONStorage(() => supabaseStorage),
+      storage: createJSONStorage(() => localStorage),
       skipHydration: true,
     },
   ),
