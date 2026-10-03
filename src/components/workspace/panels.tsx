@@ -12,6 +12,11 @@ import {
   type TradePlan,
   type WorkflowStepId,
 } from "@/lib/backtest/types";
+import {
+  calculateLotSize,
+  DEMO_RISK_PER_TRADE,
+  US30_POINT_VALUE_PER_LOT,
+} from "@/lib/backtest/account";
 
 /* ---------- small controls ---------- */
 
@@ -306,6 +311,19 @@ export function TradePanel({
   }
 
   const rr = rrRatio(trade);
+  const slDistance = riskDistance(trade);
+  const lotSize = calculateLotSize(trade);
+  const riskPercent = 2.5;
+
+  const liveR =
+    lastPrice !== null && slDistance > 0
+      ? (trade.direction === "long"
+          ? lastPrice - trade.entry
+          : trade.entry - lastPrice) / slDistance
+      : null;
+
+  const livePnl = liveR !== null ? liveR * DEMO_RISK_PER_TRADE : null;
+
   const num = (k: "entry" | "stopLoss" | "takeProfit", label: string) => (
     <Field label={label}>
       <input
@@ -340,10 +358,41 @@ export function TradePanel({
         {num("takeProfit", "Take profit")}
       </div>
       <div className="grid grid-cols-3 gap-2 rounded-md border border-border bg-surface p-2 text-center">
-        <Stat label="Risk" value={riskDistance(trade).toFixed(1)} />
+        <Stat label="SL distance" value={slDistance.toFixed(1)} />
         <Stat label="Reward" value={rewardDistance(trade).toFixed(1)} />
         <Stat label="R:R" value={rr.toFixed(2)} />
       </div>
+
+      <div className="grid grid-cols-3 gap-2 rounded-md border border-border bg-surface p-2 text-center">
+        <Stat label="Risk" value={`$${DEMO_RISK_PER_TRADE.toFixed(2)}`} />
+        <Stat label="Risk %" value={`${riskPercent.toFixed(1)}%`} />
+        <Stat
+          label="Lot size"
+          value={lotSize > 0 ? lotSize.toFixed(3) : "—"}
+        />
+      </div>
+
+      {lastPrice !== null && liveR !== null && trade.resultR === undefined && (
+        <div className="rounded-md border border-border bg-surface p-2">
+          <div className="eyebrow mb-2">Live position</div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <Stat label="Current" value={lastPrice.toFixed(1)} />
+            <Stat
+              label="Unrealized"
+              value={`${livePnl! >= 0 ? "+" : "-"}$${Math.abs(livePnl!).toFixed(2)}`}
+            />
+            <Stat
+              label="R Multiple"
+              value={`${liveR >= 0 ? "+" : ""}${liveR.toFixed(2)}R`}
+            />
+          </div>
+        </div>
+      )}
+
+      <p className="text-[11px] text-muted-foreground">
+        US30 simulation: ${US30_POINT_VALUE_PER_LOT.toFixed(2)} per point per 1.00 lot.
+        Lot size automatically keeps risk at ${DEMO_RISK_PER_TRADE.toFixed(2)}.
+      </p>
       {trade.resultR !== undefined && (
         <div className="grid grid-cols-2 gap-2 rounded-md border border-border bg-surface p-2 text-center">
           <Stat label="Result" value={trade.result ?? "—"} />

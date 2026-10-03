@@ -6,6 +6,19 @@ import { computeStats } from "@/lib/backtest/stats";
 import { NO_TRADE_REASONS } from "@/lib/backtest/types";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { useStoresHydrated } from "@/lib/store/hydrate";
+import {
+  computeDemoAccount,
+  DEMO_RISK_PER_TRADE,
+} from "@/lib/backtest/account";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 
 export const Route = createFileRoute("/statistics")({
   head: () => ({
@@ -54,10 +67,20 @@ function Dist({ title, data, labels }: { title: string; data: Record<string, num
   );
 }
 
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="eyebrow">{label}</div>
+      <div className="num text-sm font-semibold">{value}</div>
+    </div>
+  );
+}
+
 function StatsPage() {
   const ready = useStoresHydrated();
   const records = useJournalStore((s) => s.records);
   const s = useMemo(() => computeStats(records), [records]);
+  const account = useMemo(() => computeDemoAccount(records), [records]);
   const reasonLabels = Object.fromEntries(NO_TRADE_REASONS.map((r) => [r.id, r.label]));
 
   return (
@@ -70,6 +93,83 @@ function StatsPage() {
               No records yet. Statistics appear once you record results and no-trade decisions.
             </p>
           )}
+          <section className="rounded-lg border border-border bg-surface p-3">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="eyebrow">Demo account</h2>
+                <div className="num mt-1 text-2xl font-semibold">
+                  ${account.balance.toFixed(2)}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Started at $1,000 · $25 risk per trade · 2.5%
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div
+                  className="num text-sm font-semibold"
+                  style={{ color: account.totalPnl >= 0 ? "var(--bull)" : "var(--bear)" }}
+                >
+                  {account.totalPnl >= 0 ? "+" : ""}${account.totalPnl.toFixed(2)}
+                </div>
+                <div className="num text-xs text-muted-foreground">
+                  {account.returnPercent >= 0 ? "+" : ""}{account.returnPercent.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-3 grid grid-cols-3 gap-2 text-center">
+              <Stat label="Risk" value={`$${DEMO_RISK_PER_TRADE.toFixed(0)}`} />
+              <Stat label="Max DD" value={`$${account.maxDrawdown.toFixed(2)}`} />
+              <Stat label="DD %" value={`${account.maxDrawdownPercent.toFixed(2)}%`} />
+            </div>
+
+            {account.points.length > 1 ? (
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={account.points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis
+                      dataKey="trade"
+                      tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                      axisLine={{ stroke: "var(--border)" }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                      axisLine={{ stroke: "var(--border)" }}
+                      tickLine={false}
+                      width={55}
+                      tickFormatter={(v) => `$${Number(v).toFixed(0)}`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        color: "var(--foreground)",
+                      }}
+                      formatter={(value) => [`$${Number(value).toFixed(2)}`, "Balance"]}
+                      labelFormatter={(label) => `Trade ${label}`}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="balance"
+                      stroke="var(--primary)"
+                      strokeWidth={2}
+                      dot={{ r: 2 }}
+                      activeDot={{ r: 4 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="py-8 text-center text-xs text-muted-foreground">
+                Record a trade to start the $1,000 account equity curve.
+              </p>
+            )}
+          </section>
+
           <div className="grid grid-cols-3 gap-2">
             <Tile label="Trades" value={String(s.trades)} />
             <Tile label="No-trades" value={String(s.noTrades)} />
