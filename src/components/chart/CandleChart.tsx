@@ -207,14 +207,32 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
         const root = chartRootRef.current;
         if (!root) throw new Error("Chart is not mounted.");
 
-        // Wait one frame so the chart canvas/SVG overlays are fully painted.
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => resolve());
-        });
+        // Wait until the chart has had a stable layout for several frames.
+        // This matters on Android because closing the Trade/Analysis panel
+        // can require multiple layout + chart resize passes.
+        let lastSize = "";
+        let stableFrames = 0;
+        const deadline = performance.now() + 1500;
+
+        while (stableFrames < 3 && performance.now() < deadline) {
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve());
+          });
+
+          const currentSize = `${root.clientWidth}x${root.clientHeight}`;
+
+          if (currentSize === lastSize) {
+            stableFrames += 1;
+          } else {
+            stableFrames = 0;
+          }
+
+          lastSize = currentSize;
+        }
 
         const dataUrl = await toPng(root, {
           cacheBust: true,
-          pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+          pixelRatio: Math.min(Math.max(window.devicePixelRatio || 1, 2), 3),
           backgroundColor: getComputedStyle(root).backgroundColor || "#070A0F",
           // floating UI buttons must not appear in journal snapshots
           filter: (node) => {

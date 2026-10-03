@@ -73,6 +73,47 @@ function Workspace() {
   const advance = useAdvance(session, session?.timeframe ?? settings.defaultTimeframe, (t) => store.patchActive({ currentTime: t }));
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const panelOpenRef = useRef(panelOpen);
+  panelOpenRef.current = panelOpen;
+
+  /*
+   * Capture snapshots from the full-size chart.
+   *
+   * The Trade/Analysis panel can consume a large part of the Android
+   * viewport, and the keyboard can make the chart even smaller.
+   * Temporarily hide the panel, allow the chart to resize, capture,
+   * then restore the exact previous panel state.
+   */
+  const captureSnapshotClean = useCallback(async () => {
+    const handle = chartRef.current;
+    if (!handle) throw new Error("Chart is not mounted.");
+
+    const wasPanelOpen = panelOpenRef.current;
+
+    try {
+      // Dismiss the Android keyboard/focus before changing the layout.
+      (document.activeElement as HTMLElement | null)?.blur?.();
+
+      if (wasPanelOpen) {
+        setPanelOpen(false);
+      }
+
+      // Give React, the browser, and Lightweight Charts time to resize.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve();
+          });
+        });
+      });
+
+      return await handle.captureSnapshot();
+    } finally {
+      if (wasPanelOpen) {
+        setPanelOpen(true);
+      }
+    }
+  }, []);
 
   /* playback loop — the replay clock is the only source of truth */
   useEffect(() => {
@@ -236,7 +277,7 @@ function Workspace() {
 
         if (cancelled) return;
 
-        const blob = await chartRef.current.captureSnapshot();
+        const blob = await captureSnapshotClean();
         const snapshotId = uid();
 
         await saveSnapshot({
@@ -273,6 +314,7 @@ function Workspace() {
     session?.trade?.status,
     session?.trade?.closedAt,
     session?.trade?.afterSnapshotId,
+    captureSnapshotClean,
   ]);
 
   useEffect(() => {
@@ -506,7 +548,7 @@ function Workspace() {
                     if (!chartRef.current) return;
 
                     try {
-                      const blob = await chartRef.current.captureSnapshot();
+                      const blob = await captureSnapshotClean();
                       const snapshotId = uid();
 
                       await saveSnapshot({
@@ -517,8 +559,10 @@ function Workspace() {
                         sessionId: session.id,
                       });
 
-                      const currentTrade = session.trade;
-                      if (!currentTrade) return;
+                      const currentTrade =
+                        useSessionStore.getState().sessions[session.id]?.trade;
+
+                      if (!currentTrade || currentTrade.beforeSnapshotId) return;
 
                       store.setTrade({
                         ...currentTrade,
