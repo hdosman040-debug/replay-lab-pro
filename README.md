@@ -22,17 +22,23 @@ Analyze → Mark liquidity → Identify POI → Observe sweep → Identify displ
 - M1, M5, M15, M30, H1, H4, all aligned to the same replay timestamp.
 - Higher timeframes are aggregated on the client from M1 data.
 - Switching the view timeframe does not reset the replay.
-- Scroll left on the chart to load older history without moving the clock.
+- Scroll left on the chart to load older history without moving the clock. If the loader hits a data gap, it widens the lookback until it finds candles.
 
 ### Chart and drawings
 - Built on [lightweight-charts](https://github.com/tradingview/lightweight-charts) with a custom drawing overlay.
+- **MT5-style touch navigation:**
+  - Drag horizontally to pan time and pinch to zoom.
+  - Drag the price axis to scale price. Double-click an axis to reset it. One-finger vertical drag deliberately does not pan price.
+  - Long-press shows the crosshair, and it stays until your next tap.
+  - A **»** button jumps back to the latest candle when you have scrolled away, and an **A** button turns price auto-scale back on after you have scaled manually.
+- OHLC legend with candle change and percent, plus day separators labelled with weekday and date in your session timezone. Session bands are shaded from session high to low and stop at the last revealed candle.
 - Manual tools, grouped as:
   - **Liquidity:** BSL, SSL, PDH, PDL, Asia H/L, London H/L, Session H/L, Custom
   - **Structure:** HH, HL, LH, LL, MSS
   - **POI:** FVG, Order Block, Custom POI
   - **Price action:** Sweep, Displacement
   - **General:** horizontal line, trend line, rectangle/zone, arrow, text note
-- Undo/redo (100 steps per session), delete, optional magnet-to-OHLC, and an option to keep the tool active.
+- Undo/redo (100 steps per session, kept in memory only), delete, optional magnet-to-OHLC, and an option to keep the tool active.
 - Session bands (Asia / London / New York) and a configurable trading window.
 - Each drawing stores the replay time it was created at, so later review stays honest.
 
@@ -41,8 +47,17 @@ Analyze → Mark liquidity → Identify POI → Observe sweep → Identify displ
 - **Trade planner:** direction, entry, SL, TP, with R:R and result in R calculated for you. Levels are shown on the chart.
 - **Automatic bookkeeping only:** a planned trade becomes *active* when replayed price reaches your entry, and *closed* when your SL or TP is touched. It records max favorable and adverse excursion in R.
 - **Ambiguous candles:** if one M1 candle touches both SL and TP, the outcome is treated pessimistically (stop first).
-- **Chart snapshots:** a before-trade snapshot is captured on demand and an after-trade snapshot is captured automatically when the trade closes.
+- **Chart snapshots:** a before-trade snapshot is captured on demand and an after-trade snapshot is captured automatically when the trade closes. Snapshots are full-size (rendered at 2–3× pixel ratio), are taken only after the chart layout has settled, and leave out the floating chart buttons.
 - **12-step workflow checklist** in the workspace, with a step-by-step page at `/backtest`.
+
+### Demo account and live P&L
+Every journaled trade also runs through a simulated US30 demo account, so you can see results in dollars as well as R.
+
+- **Account:** starts at $1,000 with a flat $25 risked per trade (2.5% of the starting balance). P&L per trade is result in R × $25. Risk does not compound with the balance.
+- **Position sizing:** the trade planner shows risk in dollars, risk percent, and an automatic lot size. US30 is simulated at $1 per point per 1.00 lot, so lot size is $25 divided by your SL distance in points.
+- **Live position:** until a trade closes, the planner shows the current price, unrealized P&L in dollars, and the live R multiple.
+- **Statistics page:** balance, total P&L, return percent, max drawdown (dollars and percent), and a per-trade equity curve.
+- The starting balance and risk amount are constants in `src/lib/backtest/account.ts`. They are not editable in Settings yet.
 
 ### Journal and statistics
 - Records both **trades** and **no-trade decisions** (no trade, setup invalidated, missed setup, did not meet rules, poor conditions, waiting for confirmation, other).
@@ -52,7 +67,7 @@ Analyze → Mark liquidity → Identify POI → Observe sweep → Identify displ
 
 ### Sessions and settings
 - Replay sessions can be paused and resumed, and they keep the clock, drawings, analysis, and trade.
-- Settings: theme, default timeframe and speed, session timezone, Asia/London/New York/trading-window times, session and window overlays, volume, magnet, keep-tool-active, and lookback candles.
+- Settings: trader name, theme, default timeframe and speed, session timezone, Asia/London/New York/trading-window times, session and window overlays, volume, magnet, keep-tool-active, and lookback candles.
 - **Session logic always uses `America/New_York`** and never the device timezone.
 - Default trading window: 09:45–12:00 NY (configurable).
 
@@ -64,6 +79,7 @@ Market data comes from **Supabase Storage** and is read through the `MarketDataP
 - **Layout:** `US30/M1/YYYY/YYYY-MM.csv`, one M1 file per month
 - **CSV columns:** header row, then `DateTime, Open, High, Low, Close, Volume`
 - **Timestamps:** UTC by default. Set `VITE_CSV_TIME_MODE=ny7` if your files use broker time (New York + 7 hours).
+- **Access:** market data is read with the anonymous Supabase role and no login session.
 - **Loading:** only the months needed are downloaded, with an in-memory LRU cache of 4 months. Missing months are treated as empty.
 - **Data page:** shows dataset status, candle range, and count. The candle count shown there is currently hard-coded, not computed.
 
@@ -73,24 +89,37 @@ Upload local CSVs with:
 node upload-m1-to-supabase.mjs
 ```
 
-The script reads `data/us30/M1/**/*.csv` (git-ignored) and needs `.env.local` (see below). Note that it currently skips `US30/M1/2016/2016-10.csv` by name.
+The script reads `data/us30/M1/**/*.csv` (git-ignored) and needs `.env.local` (see below). Files that already exist in the bucket are skipped, and it currently skips `US30/M1/2016/2016-10.csv` by name.
 
 ## Persistence
 
-Currently stored **in the browser only**:
+There is **no login**. The app is single-owner: everything is stored under one constant owner ID (`src/lib/owner.ts`). An email sign-in flow was built and then removed, so treat a deployment as private and single-user.
 
-| Data | Storage |
+| Data | Where it lives |
 | --- | --- |
-| Sessions, drawings, analysis, trades | `localStorage` (`ict-terminal.sessions.v1`) |
-| Journal records | `localStorage` (`ict-terminal.journal.v1`) |
-| Settings | `localStorage` (`ict-terminal.settings.v1`) |
-| Chart snapshots | IndexedDB (`replay-lab-pro.snapshots`) |
+| Sessions, drawings, analysis, trades | Supabase table `user_state` (key `ict-terminal.sessions.v1`) |
+| Journal records | Supabase table `user_state` (key `ict-terminal.journal.v1`) |
+| Chart snapshots | Supabase Storage bucket `chart-snapshots`, indexed in table `chart_snapshots` |
+| Settings | `localStorage` only (`ict-terminal.settings.v1`), so they are per device |
 
-Clearing site data deletes all of the above. Syncing sessions and the journal to Supabase is a planned next step.
+How syncing behaves:
+
+- **Supabase is the source of truth** for sessions and the journal. A copy is kept in `localStorage` under `cache:<key>` as an offline fallback.
+- Saves are debounced by 1.5 seconds, retried every 8 seconds if they fail, and flushed immediately when the tab is hidden.
+- If a key is missing in Supabase but present in the local cache, the cached copy is uploaded.
+- Snapshots upload to Supabase first. If that fails, the image is kept in IndexedDB (`replay-lab-pro.snapshots`) and uploaded the next time it is opened.
+- Clearing site data no longer wipes sessions, journal, or snapshots, but it does reset settings.
+
+The repo does not include Supabase migrations yet. The app expects:
+
+- `user_state` with columns `user_id`, `key`, `value`, `updated_at`, unique on (`user_id`, `key`)
+- `chart_snapshots` with columns `id`, `user_id`, `session_id`, `kind`, `journal_record_id`, `created_at`
+- Storage buckets `market-data-file` and `chart-snapshots`
+- Policies that let the anon key read and write them, since there is no login
 
 ## Tech stack
 
-TanStack Start and Router · React 19 · Vite · Tailwind CSS 4 · Radix UI / shadcn · Zustand · lightweight-charts 5 · Supabase JS · Vitest · deployed on Netlify.
+TanStack Start and Router · React 19 · Vite · Tailwind CSS 4 · Radix UI / shadcn · Zustand · lightweight-charts 5 · Recharts · html-to-image · Supabase (Postgres and Storage) · Vitest · deployed on Netlify.
 
 ## Getting started
 
@@ -110,6 +139,8 @@ VITE_SUPABASE_ANON_KEY=...
 # optional: VITE_CSV_TIME_MODE=ny7
 ```
 
+These are needed for both market data and persistence. Without them the app cannot load history or save sessions.
+
 Then run:
 
 ```sh
@@ -124,11 +155,11 @@ Other scripts: `npm run build`, `npm run build:dev`, `npm run preview`, `npm run
 npx vitest
 ```
 
-The replay engine tests are self-contained. The `supabaseProvider.*` and `supabase.integration` tests hit the live Supabase bucket, so they need valid env vars.
+The replay engine tests (`engine.test.ts`) and the time helper tests are self-contained. The diagnostic and integration tests (`supabaseProvider.*`, `supabaseStorage.inspect`, `check-apr13*`, `supabase.integration`) read the live Supabase bucket, so they need valid env vars and the data uploaded.
 
 ### Deploy
 
-Netlify runs `npm run build` and publishes `dist/client` (see `netlify.toml`).
+Netlify runs `npm run build` and publishes `dist/client` (see `netlify.toml`). Set the two `VITE_SUPABASE_*` variables in the Netlify site settings.
 
 ## Project structure
 
@@ -136,14 +167,16 @@ Netlify runs `npm run build` and publishes `dist/client` (see `netlify.toml`).
 src/
   routes/          Replay (/), Backtest, Journal, Statistics, Data, Settings
   components/      chart, workspace (tool strip, panels, sheets, trade levels), journal, layout, ui
+  hooks/
   lib/
     market/        MarketDataProvider, Supabase provider, aggregation
     replay/        replay engine (no UI dependency) and hooks
     drawings/      tool definitions and drawing types
-    backtest/      analysis, trade, journal types and statistics
-    snapshots/     IndexedDB chart snapshots
-    store/         Zustand stores (sessions, journal, settings, UI)
+    backtest/      analysis, trade, journal types, statistics, demo account
+    snapshots/     chart snapshots (Supabase Storage with IndexedDB fallback)
+    store/         Zustand stores (sessions, journal, settings, UI) and Supabase-backed storage
     time/          New York timezone and session helpers
+    supabaseClient.ts, owner.ts
 ```
 
 The replay engine, market provider, drawings, and journal are kept independent of each other.
