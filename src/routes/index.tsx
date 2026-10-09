@@ -73,6 +73,7 @@ function Workspace() {
   const advance = useAdvance(session, session?.timeframe ?? settings.defaultTimeframe, (t) => store.patchActive({ currentTime: t }));
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const panelOpenRef = useRef(panelOpen);
   panelOpenRef.current = panelOpen;
 
@@ -371,7 +372,7 @@ function Workspace() {
     <AppShell>
       <div className="flex h-full flex-col overflow-hidden">
         {/* top bar */}
-        <header className="shrink-0 border-b border-border bg-surface px-2 py-1.5">
+        <header className={`shrink-0 border-b border-border bg-surface px-2 py-1.5${fullscreen ? " hidden" : ""}`}>
           <div className="flex items-center gap-2">
             <button type="button" className="chip shrink-0" onClick={() => ui.setSheet("sessions")}>
               ☰
@@ -445,10 +446,21 @@ function Workspace() {
               onChange={(patch) => session.trade && store.setTrade({ ...session.trade, ...patch })}
             />
           </CandleChart>
+          <button
+            type="button"
+            data-no-snap
+            aria-label={fullscreen ? "Exit full screen" : "Full screen chart"}
+            onClick={() => setFullscreen((v) => !v)}
+            className="absolute right-2 top-2 z-40 flex h-9 items-center rounded border border-border bg-surface/90 px-3 text-xs font-semibold"
+            style={{ color: "var(--foreground)" }}
+          >
+            {fullscreen ? "Exit" : "Full"}
+          </button>
         </div>
 
-        {/* replay controls */}
-        <div className="flex shrink-0 items-center gap-1.5 border-t border-border bg-surface px-2 py-2">
+        {/* bottom dock: replay controls, tool groups and panel. Scrolls when taller than 40% of the screen so the chart keeps the rest. */}
+        <div className={fullscreen ? "hidden" : "shrink-0 max-h-[32dvh] overflow-y-auto overscroll-contain"}>
+        <div className="flex items-center gap-1.5 border-t border-border bg-surface px-2 py-2">
           <button
             type="button"
             className="touch-btn flex-1 font-semibold"
@@ -518,7 +530,7 @@ function Workspace() {
             )}
           </div>
           {panelOpen && (
-            <div className="max-h-[45dvh] overflow-y-auto border-t border-border">
+            <div className="border-t border-border">
               {ui.panelTab === "workflow" && <WorkflowPanel session={session} onToggle={store.toggleWorkflowStep} />}
               {ui.panelTab === "analysis" && <AnalysisPanel analysis={session.analysis} onChange={store.setAnalysis} />}
               {ui.panelTab === "trade" && (
@@ -576,6 +588,7 @@ function Workspace() {
               )}
             </div>
           )}
+        </div>
         </div>
       </div>
       <Sheets />

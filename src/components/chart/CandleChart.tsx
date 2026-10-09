@@ -126,18 +126,12 @@ function lowerBound(cs: Candle[], t: number): number {
   }
   return lo;
 }
-function indexAtTime(cs: Candle[], t: number): number {
-  const i = lowerBound(cs, t);
-  return cs[i]?.time === t ? i : -1;
-}
 
 export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleChart(
   {
     candles,
     barSeconds,
     timezone,
-    symbol,
-    timeframe,
     onClickEmpty,
     onVisibleRangeChange,
     onCrosshairPrice,
@@ -156,8 +150,6 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
   candlesRef.current = candles;
   const pumpRef = useRef<() => void>(() => {});
   const dirtyRef = useRef(false);
-  const crosshairOnRef = useRef(false);
-  const legendRef = useRef<Array<HTMLElement | null>>([]);
   const [version, setVersion] = useState(0);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [showLatest, setShowLatest] = useState(false);
@@ -166,31 +158,6 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
   cbRef.current = { onClickEmpty, onVisibleRangeChange, onCrosshairPrice };
   const tzRef = useRef(timezone);
   tzRef.current = timezone;
-
-  /** OHLC legend is written straight to the DOM: no React render per crosshair move. */
-  const paintLegend = useCallback((index: number) => {
-    const els = legendRef.current;
-    const cs = candlesRef.current;
-    const c = index >= 0 ? cs[index] : undefined;
-    if (!c) {
-      for (const e of els) if (e) e.textContent = "";
-      return;
-    }
-    const base = index > 0 ? cs[index - 1]!.close : c.open;
-    const diff = c.close - base;
-    const pct = base !== 0 ? (diff / base) * 100 : 0;
-    const sign = diff >= 0 ? "+" : "";
-    const color = c.close >= c.open ? "var(--bull)" : "var(--bear)";
-    const vals = [c.open, c.high, c.low, c.close].map((v) => v.toFixed(PRICE_DECIMALS));
-    vals.push(`${sign}${diff.toFixed(PRICE_DECIMALS)} (${sign}${pct.toFixed(2)}%)`);
-    for (let i = 0; i < 5; i++) {
-      const e = els[i];
-      if (e) {
-        e.textContent = vals[i]!;
-        e.style.color = color;
-      }
-    }
-  }, []);
 
   const goLatest = useCallback(() => {
     chartRef.current?.timeScale().scrollToPosition(6, true);
@@ -405,13 +372,9 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     chart.subscribeCrosshairMove((p: MouseEventParams<Time>) => {
       const cb = cbRef.current.onCrosshairPrice;
       if (!p.point || p.time === undefined) {
-        crosshairOnRef.current = false;
-        paintLegend(candlesRef.current.length - 1);
         cb?.(null);
         return;
       }
-      crosshairOnRef.current = true;
-      paintLegend(indexAtTime(candlesRef.current, p.time as number));
       if (cb) cb(series.coordinateToPrice(p.point.y));
     });
 
@@ -430,7 +393,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
       prevRef.current = [];
       pumpRef.current = () => {};
     };
-  }, [paintLegend]);
+  }, []);
 
   useEffect(() => {
     chartRef.current?.priceScale("right").applyOptions({
@@ -527,7 +490,6 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
 
     prevRef.current = candles;
     prevBarSecondsRef.current = barSeconds;
-    if (!crosshairOnRef.current) paintLegend(candles.length - 1);
     dirtyRef.current = true;
     pumpRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -659,34 +621,8 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
           {children}
         </div>
 
-        {/* HUD: OHLC legend + TradingView-style helper buttons */}
+        {/* HUD: helper buttons */}
         <div className="absolute inset-0 z-30" style={{ pointerEvents: "none" }}>
-          <div className="absolute left-2 top-1 flex max-w-[calc(100%-76px)] flex-wrap items-center gap-x-2 rounded bg-surface/70 px-1.5 py-0.5 font-mono text-[10.5px] leading-4 text-muted-foreground">
-            {symbol ? (
-              <span className="font-semibold" style={{ color: "var(--foreground)" }}>
-                {symbol}
-                {timeframe ? ` · ${timeframe}` : ""}
-              </span>
-            ) : null}
-            {(["O", "H", "L", "C"] as const).map((k, i) => (
-              <span key={k}>
-                {k}
-                <b
-                  ref={(el) => {
-                    legendRef.current[i] = el;
-                  }}
-                  className="ml-0.5 font-medium"
-                />
-              </span>
-            ))}
-            <b
-              ref={(el) => {
-                legendRef.current[4] = el;
-              }}
-              className="font-medium"
-            />
-          </div>
-
           {showLatest && (
             <button
               type="button"
