@@ -28,7 +28,7 @@ import { uid, useActiveSession, useSessionStore } from "@/lib/store/sessionStore
 import { saveSnapshot } from "@/lib/snapshots/snapshotStore";
 import { useSettingsStore } from "@/lib/store/settingsStore";
 import { useUIStore } from "@/lib/store/uiStore";
-import { fmtDate, fmtTime, sessionAt, SESSION_LABEL } from "@/lib/time/ny";
+import { DEFAULT_TZ, fmtDate, fmtTime, sessionAt, SESSION_LABEL } from "@/lib/time/ny";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -435,7 +435,7 @@ function Workspace() {
               magnet={settings.magnetToOHLC}
               replayTime={session.currentTime}
               candles={candles}
-              timezone={tz}
+              timezone={DEFAULT_TZ}
               sessions={settings.sessions}
               showSessions={settings.showSessions}
               showTradingWindow={settings.showTradingWindow}
