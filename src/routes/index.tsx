@@ -13,6 +13,8 @@ import {
   SessionsSheet,
 } from "@/components/workspace/sheets";
 import { ToolStrip } from "@/components/workspace/ToolStrip";
+import { NewsBanner, NewsPanel } from "@/components/workspace/NewsPanel";
+import { useNewsAlerts } from "@/lib/news/useNewsAlerts";
 import { TradeLevels } from "@/components/workspace/TradeLevels";
 import { resultRAt, type TradePlan } from "@/lib/backtest/types";
 import { getTool } from "@/lib/drawings/types";
@@ -26,7 +28,7 @@ import { uid, useActiveSession, useSessionStore } from "@/lib/store/sessionStore
 import { saveSnapshot } from "@/lib/snapshots/snapshotStore";
 import { useSettingsStore } from "@/lib/store/settingsStore";
 import { useUIStore } from "@/lib/store/uiStore";
-import { DEFAULT_TZ, fmtDate, fmtTime, sessionAt, SESSION_LABEL } from "@/lib/time/ny";
+import { fmtDate, fmtTime, sessionAt, SESSION_LABEL } from "@/lib/time/ny";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -73,6 +75,8 @@ function Workspace() {
   const advance = useAdvance(session, session?.timeframe ?? settings.defaultTimeframe, (t) => store.patchActive({ currentTime: t }));
 
   const [panelOpen, setPanelOpen] = useState(false);
+  const [newsOpen, setNewsOpen] = useState(false);
+  const news = useNewsAlerts(session?.id ?? null, session?.currentTime ?? null);
   const [fullscreen, setFullscreen] = useState(false);
   const panelOpenRef = useRef(panelOpen);
   panelOpenRef.current = panelOpen;
@@ -412,6 +416,7 @@ function Workspace() {
 
         {/* chart */}
         <div className="relative min-h-0 flex-1">
+          <NewsBanner alerts={news.alerts} currentTime={session?.currentTime ?? 0} tz={tz} onDismiss={news.dismiss} />
           <CandleChart
             ref={chartRef}
             candles={candles}
@@ -430,7 +435,7 @@ function Workspace() {
               magnet={settings.magnetToOHLC}
               replayTime={session.currentTime}
               candles={candles}
-              timezone={DEFAULT_TZ}
+              timezone={tz}
               sessions={settings.sessions}
               showSessions={settings.showSessions}
               showTradingWindow={settings.showTradingWindow}
@@ -494,6 +499,11 @@ function Workspace() {
         <ToolStrip
           activeTool={ui.activeTool}
           onPick={ui.setActiveTool}
+          newsOpen={newsOpen}
+          onNewsOpen={setNewsOpen}
+          newsContent={
+            <NewsPanel events={news.events} currentTime={session.currentTime} tz={tz} onLoaded={news.reload} />
+          }
           onUndo={store.undo}
           onRedo={store.redo}
           hasSelection={!!ui.selectedDrawingId}
