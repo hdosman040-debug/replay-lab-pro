@@ -260,7 +260,9 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
           const h = d.getUTCHours();
           const m = d.getUTCMinutes();
           if (h === 0 && m === 0) return `${d.getUTCDate()}/${d.getUTCMonth() + 1}`;
-          return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+          const suffix = h >= 12 ? "PM" : "AM";
+          const h12 = h % 12 || 12;
+          return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
         },
       },
       localization: {
