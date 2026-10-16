@@ -10,8 +10,8 @@ import { TF_SECONDS, floorToTf } from "./types";
 import { aggregateCandles } from "./aggregate";
 import { brokerWallToUtc } from "../time/brokerTime";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const SUPABASE_URL = import.meta.env["VITE_SUPABASE_URL"] as string | undefined;
+const SUPABASE_ANON_KEY = import.meta.env["VITE_SUPABASE_ANON_KEY"] as string | undefined;
 
 const BUCKET = "market-data-file";
 const ROOT = "US30/M1";
@@ -23,7 +23,7 @@ const ROOT = "US30/M1";
  * Set VITE_CSV_TIME_MODE=ny7 to enable.
  */
 const CSV_TIME_MODE: "broker" | "utc" =
-  (import.meta.env.VITE_CSV_TIME_MODE as string | undefined) === "utc" ? "utc" : "broker";
+  (import.meta.env["VITE_CSV_TIME_MODE"] as string | undefined) === "utc" ? "utc" : "broker";
 
 /** Month files are split by broker time, so load neighbours when converting. */
 const MONTH_PAD_SECONDS = CSV_TIME_MODE === "utc" ? 0 : 86400;
@@ -78,7 +78,7 @@ function parseCsv(text: string): Candle[] {
   const candles: Candle[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const line = (lines[i] ?? "").trim();
 
     if (!line || i === 0) continue;
 
@@ -389,8 +389,8 @@ class SupabaseMarketDataProviderImpl {
       return null;
     }
 
-    const firstMonth = availableMonths[0];
-    const lastMonth = availableMonths[availableMonths.length - 1];
+    const firstMonth = availableMonths[0]!;
+    const lastMonth = availableMonths[availableMonths.length - 1]!;
 
     // The first and last months are independent, so load them
     // in parallel to avoid unnecessary sequential downloads.
@@ -417,8 +417,8 @@ class SupabaseMarketDataProviderImpl {
       return null;
     }
 
-    const first = firstCandles[0].time;
-    const lastM1 = lastCandles[lastCandles.length - 1].time;
+    const first = firstCandles[0]!.time;
+    const lastM1 = lastCandles[lastCandles.length - 1]!.time;
 
     if (timeframe === "M1") {
       return {

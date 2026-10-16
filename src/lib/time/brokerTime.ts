@@ -13,7 +13,7 @@ const SWITCHES: Array<{ from: string; hours: number }> = [
 ];
 
 export function brokerHoursAhead(dayKey: string): number {
-  let hours = SWITCHES[0].hours;
+  let hours = SWITCHES[0]!.hours;
   for (const s of SWITCHES) {
     if (dayKey >= s.from) hours = s.hours;
   }

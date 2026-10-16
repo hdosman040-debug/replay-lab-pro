@@ -1,30 +1,59 @@
 import type { StateStorage } from "zustand/middleware";
-
-import { OWNER_ID } from "@/lib/owner";
 import { supabase } from "@/lib/supabaseClient";
+import { accountCacheKey } from "./accountKeys";
 
 const TABLE = "user_state";
 const SAVE_DELAY_MS = 1500;
 const RETRY_DELAY_MS = 8000;
 
-const pending = new Map<string, string>();
+let activeUserId: string | null = null;
+let generation = 0;
+
+type PendingSave = {
+  userId: string;
+  generation: number;
+  value: string;
+};
+
+const pending = new Map<string, PendingSave>();
+const inFlight = new Set<Promise<void>>();
+let failedSaveCount = 0;
+
+/** True if any queued or already-started save is unfinished. */
+export function hasUnsavedChanges(): boolean {
+  return pending.size > 0 || inFlight.size > 0;
+}
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
-const cacheName = (name: string) => `cache:${name}`;
+function clearPending(): void {
+  for (const timer of timers.values()) clearTimeout(timer);
+  timers.clear();
+  pending.clear();
+}
 
-function localGet(key: string): string | null {
-  try {
-    return typeof localStorage === "undefined" ? null : localStorage.getItem(key);
-  } catch {
-    return null;
+export function setStorageUser(userId: string | null): void {
+  if (activeUserId === userId) return;
+  generation++;
+  clearPending();
+  activeUserId = userId;
+}
+
+export function getStorageUser(): string | null {
+  return activeUserId;
+}
+
+function requireUser(): string {
+  if (!activeUserId) {
+    throw new Error("Authenticated user required for journal storage");
   }
+  return activeUserId;
 }
 
 function localSet(key: string, value: string): void {
   try {
     if (typeof localStorage !== "undefined") localStorage.setItem(key, value);
   } catch {
-    /* offline cache only */
+    // Local cache is optional.
   }
 }
 
@@ -32,99 +61,177 @@ function localRemove(key: string): void {
   try {
     if (typeof localStorage !== "undefined") localStorage.removeItem(key);
   } catch {
-    /* ignore */
+    // Local cache is optional.
   }
 }
 
 function schedule(name: string, delay: number): void {
-  const existing = timers.get(name);
-  if (existing) clearTimeout(existing);
+  const previous = timers.get(name);
+  if (previous) clearTimeout(previous);
+
   timers.set(
     name,
-    setTimeout(() => {
-      void flushKey(name);
-    }, delay),
+    setTimeout(() => { void flushKey(name); }, delay),
   );
 }
 
 function queueSave(name: string, value: string): void {
-  pending.set(name, value);
+  const userId = requireUser();
+
+  pending.set(name, {
+    userId,
+    generation,
+    value,
+  });
+
   schedule(name, SAVE_DELAY_MS);
 }
 
 async function flushKey(name: string): Promise<void> {
-  const timer = timers.get(name);
-  if (timer) {
-    clearTimeout(timer);
-    timers.delete(name);
-  }
-  const value = pending.get(name);
-  if (value === undefined) return;
-  pending.delete(name);
+  const operation = performFlushKey(name);
+  inFlight.add(operation);
 
   try {
-    const { error } = await supabase.from(TABLE).upsert(
-      { user_id: OWNER_ID, key: name, value, updated_at: new Date().toISOString() },
-      { onConflict: "user_id,key" },
-    );
-    if (error) throw error;
-  } catch (error) {
-    console.error("[supabaseStorage] save failed:", name, error);
-    if (!pending.has(name)) pending.set(name, value);
-    schedule(name, RETRY_DELAY_MS);
+    await operation;
+  } finally {
+    inFlight.delete(operation);
   }
 }
 
-/** Push every queued save now (used when the tab hides). */
+async function performFlushKey(name: string): Promise<void> {
+  const timer = timers.get(name);
+  if (timer) clearTimeout(timer);
+  timers.delete(name);
+
+  const item = pending.get(name);
+  if (!item) return;
+  pending.delete(name);
+
+  if (item.userId !== activeUserId || item.generation !== generation) {
+    return;
+  }
+
+  try {
+    const { error } = await supabase.from(TABLE).upsert(
+      {
+        user_id: item.userId,
+        key: name,
+        value: item.value,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,key" },
+    );
+
+    if (error) throw error;
+  } catch (error) {
+    failedSaveCount++;
+    console.error("[supabaseStorage] save failed:", name, error);
+
+    if (item.userId !== activeUserId || item.generation !== generation) {
+      return;
+    }
+
+    if (!pending.has(name)) {
+      pending.set(name, item);
+      schedule(name, RETRY_DELAY_MS);
+    }
+  }
+}
+
+/**
+ * Flush outstanding changes and verify that no writes remain.
+ * Reject rather than allowing logout after a failed save.
+ */
+export async function flushAndVerifySaves(): Promise<void> {
+  const userId = requireUser();
+  const requestGeneration = generation;
+  const failuresBefore = failedSaveCount;
+
+  await flushPendingSaves();
+
+  while (inFlight.size > 0) {
+    await Promise.all([...inFlight]);
+  }
+
+  if (
+    activeUserId !== userId ||
+    generation !== requestGeneration
+  ) {
+    throw new Error("Account changed while saving");
+  }
+
+  if (failedSaveCount !== failuresBefore || pending.size > 0) {
+    throw new Error(
+      "Some changes could not be saved. Please retry before logging out.",
+    );
+  }
+}
+
 export async function flushPendingSaves(): Promise<void> {
-  await Promise.all([...pending.keys()].map((n) => flushKey(n)));
+  await Promise.all([...pending.keys()].map((name) => flushKey(name)));
 }
 
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") void flushPendingSaves();
+    if (document.visibilityState === "hidden") {
+      void flushPendingSaves();
+    }
   });
 }
 
-/** Zustand storage: Supabase is the source of truth, localStorage is an offline cache. */
 export const supabaseStorage: StateStorage = {
   getItem: async (name) => {
-    try {
-      const { data, error } = await supabase
-        .from(TABLE)
-        .select("value")
-        .eq("user_id", OWNER_ID)
-        .eq("key", name)
-        .maybeSingle();
-      if (error) throw error;
-      if (data) {
-        const value = data.value as string;
-        localSet(cacheName(name), value);
-        return value;
-      }
-      const cached = localGet(cacheName(name));
-      if (cached !== null) queueSave(name, cached);
-      return cached;
-    } catch (error) {
-      console.error("[supabaseStorage] load failed, using local copy:", name, error);
-      return localGet(cacheName(name));
+    const userId = requireUser();
+    const requestGeneration = generation;
+
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("value")
+      .eq("user_id", userId)
+      .eq("key", name)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (userId !== activeUserId || requestGeneration !== generation) {
+      throw new Error("Storage account changed during load");
     }
+
+    if (!data) return null;
+
+    const value = data.value as string;
+    localSet(accountCacheKey(userId, name), value);
+    return value;
   },
 
   setItem: (name, value) => {
-    localSet(cacheName(name), value);
+    const userId = requireUser();
+
+    localSet(accountCacheKey(userId, name), value);
     queueSave(name, value);
   },
 
   removeItem: async (name) => {
-    localRemove(cacheName(name));
+    const userId = requireUser();
+    const requestGeneration = generation;
+
+    localRemove(accountCacheKey(userId, name));
+
     pending.delete(name);
     const timer = timers.get(name);
-    if (timer) {
-      clearTimeout(timer);
-      timers.delete(name);
+    if (timer) clearTimeout(timer);
+    timers.delete(name);
+
+    if (userId !== activeUserId || requestGeneration !== generation) {
+      return;
     }
-    const { error } = await supabase.from(TABLE).delete().eq("user_id", OWNER_ID).eq("key", name);
-    if (error) console.error("[supabaseStorage] delete failed:", name, error);
+
+    const { error } = await supabase
+      .from(TABLE)
+      .delete()
+      .eq("user_id", userId)
+      .eq("key", name);
+
+    if (error) throw error;
   },
 };

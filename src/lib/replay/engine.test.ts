@@ -80,7 +80,7 @@ describe("hindsight protection", () => {
     let view = await loadReplayView(mockMarketDataProvider, SYM, "M5", h, 60);
     for (let i = 0; i < 12; i++) {
       h = await advanceCandles(mockMarketDataProvider, SYM, "M5", h, 1);
-      view = await loadReplayDelta(mockMarketDataProvider, view, h);
+      view = await loadReplayDelta(mockMarketDataProvider, view, h, 60);
       for (const c of allCandles(view)) expect(c.time).toBeLessThan(h);
     }
   });

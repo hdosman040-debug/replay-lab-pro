@@ -1,3 +1,9 @@
+import { supabaseAuth } from "../lib/auth/client";
+import {
+  setStorageUser,
+  getStorageUser,
+  flushAndVerifySaves,
+} from "../lib/store/supabaseStorage";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -7,7 +13,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useSettingsStore } from "../lib/store/settingsStore";
 
 import appCss from "../styles.css?url";
@@ -117,6 +123,53 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const [authReady, setAuthReady] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    let active = true;
+    let initialized = false;
+
+    const { data: listener } = supabaseAuth.auth.onAuthStateChange(
+      (event, session) => {
+        if (!active) return;
+
+        const nextUserId = session?.user.id ?? null;
+        const previousUserId = getStorageUser();
+
+        if (initialized && previousUserId !== nextUserId) {
+          // A full reload clears account-specific Zustand state.
+          setStorageUser(null);
+          window.location.reload();
+          return;
+        }
+
+        if (event === "INITIAL_SESSION") {
+          initialized = true;
+        }
+
+        setStorageUser(nextUserId);
+        setSignedIn(!!session);
+        setAuthReady(true);
+      },
+    );
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authReady && !signedIn &&
+        !window.location.pathname.startsWith("/login")) {
+      router.navigate({ to: "/login" });
+    }
+  }, [authReady, signedIn, router]);
+
   const theme = useSettingsStore((s) => s.settings.theme);
 
   useEffect(() => {
@@ -128,8 +181,60 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
+      {!authReady ? (
+        <div className="p-6">Checking session...</div>
+      ) : signedIn || window.location.pathname.startsWith("/login") ? (
+        <>
+          {signedIn && (
+            <button
+              disabled={loggingOut}
+              onClick={async () => {
+                if (loggingOut) return;
+                setLoggingOut(true);
+                setLogoutError(null);
+
+                try {
+                  await flushAndVerifySaves();
+
+                  const { error } = await supabaseAuth.auth.signOut();
+                  if (error) throw error;
+
+                  window.location.replace("/login");
+                } catch (error) {
+                  console.error("[auth] Logout blocked:", error);
+                  setLogoutError(
+                    error instanceof Error
+                      ? error.message
+                      : "Unable to log out safely. Please retry.",
+                  );
+                  setLoggingOut(false);
+                }
+              }}
+              className="fixed right-2 top-2 z-50 rounded bg-slate-800 px-3 py-1 text-xs text-white"
+            >
+              {loggingOut ? "Saving..." : "Log out"}
+            </button>
+          )}
+          {signedIn && logoutError && (
+            <div
+              role="alert"
+              className="fixed right-2 top-12 z-50 max-w-sm rounded bg-red-900 p-3 text-sm text-white"
+            >
+              {logoutError}
+            </div>
+          )}
+          {loggingOut ? (
+            <div
+              className="flex min-h-screen items-center justify-center p-6"
+              role="status"
+            >
+              Saving changes before logout...
+            </div>
+          ) : (
+            <Outlet />
+          )}
+        </>
+      ) : null}
     </QueryClientProvider>
   );
 }

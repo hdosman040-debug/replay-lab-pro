@@ -45,7 +45,7 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
 
 function formatSessionTime(value: string): string {
   const [hour, minute] = value.split(":").map(Number);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+  if (hour === undefined || minute === undefined || !Number.isFinite(hour) || !Number.isFinite(minute)) return value;
 
   const suffix = hour >= 12 ? "PM" : "AM";
   const h12 = hour % 12 || 12;

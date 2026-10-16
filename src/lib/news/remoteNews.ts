@@ -2,8 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 
 import { parseCalendarCsv, saveNewsEvents, type NewsEvent } from "./calendar";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const SUPABASE_URL = import.meta.env["VITE_SUPABASE_URL"] as string | undefined;
+const SUPABASE_ANON_KEY = import.meta.env["VITE_SUPABASE_ANON_KEY"] as string | undefined;
 
 const BUCKET = "market-data-file";
 const NEWS_PATH = "US30/NEWS/usd-high-impact.csv";

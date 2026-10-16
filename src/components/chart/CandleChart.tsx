@@ -204,7 +204,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
           // floating UI buttons must not appear in journal snapshots
           filter: (node) => {
             const ds = (node as HTMLElement).dataset;
-            return !(ds && ds.noSnap !== undefined);
+            return !(ds && ds["noSnap"] !== undefined);
           },
         });
 

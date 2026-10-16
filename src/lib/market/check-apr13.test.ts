@@ -49,16 +49,16 @@ describe("April 13 2020 real provider diagnostic", () => {
         console.log("");
         console.log(
           "FIRST UNIX:",
-          candles[0].time,
+          candles[0]!.time,
           "=>",
-          new Date(candles[0].time * 1000).toISOString(),
+          new Date(candles[0]!.time * 1000).toISOString(),
         );
 
         console.log(
           "LAST UNIX:",
-          candles[candles.length - 1].time,
+          candles[candles.length - 1]!.time,
           "=>",
-          new Date(candles[candles.length - 1].time * 1000).toISOString(),
+          new Date(candles[candles.length - 1]!.time * 1000).toISOString(),
         );
       }
 
