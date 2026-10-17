@@ -1,3 +1,4 @@
+import { useAfterTradeSnapshot } from "@/hooks/useAfterTradeSnapshot";
 import { useTradeResolution } from "@/hooks/useTradeResolution";
 import { useTradeActivation } from "@/hooks/useTradeActivation";
 import { useReplayPlayback } from "@/hooks/useReplayPlayback";
@@ -129,77 +130,7 @@ function Workspace() {
 
   useTradeResolution(session);
 
-  /*
-   * Automatic AFTER-trade snapshot.
-   *
-   * The trade is marked closed first. React then renders the closed trade
-   * state on the chart. This effect runs after that render and captures the
-   * actual final chart state.
-   */
-  useEffect(() => {
-    const trade = session?.trade;
-
-    if (
-      !session ||
-      !trade ||
-      trade.status !== "closed" ||
-      !trade.closedAt ||
-      trade.afterSnapshotId
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        if (!chartRef.current) return;
-
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => resolve());
-        });
-
-        if (cancelled) return;
-
-        const blob = await captureSnapshotClean();
-        const snapshotId = uid();
-
-        await saveSnapshot({
-          id: snapshotId,
-          blob,
-          createdAt: Date.now(),
-          kind: "after",
-          sessionId: session.id,
-        });
-
-        if (cancelled) return;
-
-        const latest = useSessionStore.getState().sessions[session.id]?.trade;
-
-        if (!latest || latest.id !== trade.id || latest.status !== "closed") {
-          return;
-        }
-
-        useSessionStore.getState().setTrade({
-          ...latest,
-          afterSnapshotId: snapshotId,
-        });
-      } catch (error) {
-        console.error("[After Snapshot] FAILED:", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    session?.id,
-    session?.trade?.id,
-    session?.trade?.status,
-    session?.trade?.closedAt,
-    session?.trade?.afterSnapshotId,
-    captureSnapshotClean,
-  ]);
+  useAfterTradeSnapshot(session, chartRef, captureSnapshotClean);
 
   useEffect(() => {
     if (session && !ui.viewTimeframe) ui.setViewTimeframe(session.timeframe);
