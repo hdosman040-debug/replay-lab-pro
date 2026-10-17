@@ -1,6 +1,8 @@
+import { useContext } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
+import { LogoutContext } from "./__root";
 import { Field } from "@/components/workspace/panels";
 import { SPEEDS } from "@/lib/replay/engine";
 import { TIMEFRAMES, type Timeframe } from "@/lib/market/types";
@@ -98,6 +100,7 @@ function WindowRow({
 }
 
 function SettingsPage() {
+  const logout = useContext(LogoutContext);
   const ready = useStoresHydrated();
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
@@ -236,6 +239,23 @@ function SettingsPage() {
                 onChange={(e) => update({ traderName: e.target.value })}
               />
             </Field>
+            {logout && (
+              <>
+                <button
+                  type="button"
+                  className="touch-btn w-full border border-border text-sm"
+                  disabled={logout.loggingOut}
+                  onClick={() => void logout.logOut()}
+                >
+                  {logout.loggingOut ? "Saving..." : "Log out"}
+                </button>
+                {logout.logoutError && (
+                  <div role="alert" className="rounded border border-red-500 p-3 text-sm text-red-500">
+                    {logout.logoutError}
+                  </div>
+                )}
+              </>
+            )}
           </section>
 
           <button type="button" className="touch-btn w-full border border-border text-sm" onClick={reset}>

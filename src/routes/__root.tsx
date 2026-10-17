@@ -1,4 +1,5 @@
 import { supabaseAuth } from "../lib/auth/client";
+import { createContext } from "react";
 import {
   setStorageUser,
   getStorageUser,
@@ -120,6 +121,13 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+
+export const LogoutContext = createContext<{
+  logOut: () => Promise<void>;
+  loggingOut: boolean;
+  logoutError: string | null;
+} | null>(null);
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const [authReady, setAuthReady] = useState(false);
@@ -169,25 +177,7 @@ function RootComponent() {
     }
   }, [authReady, signedIn, router]);
 
-  const theme = useSettingsStore((s) => s.settings.theme);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle("dark", theme === "dark");
-    root.classList.toggle("light", theme === "light");
-    root.style.colorScheme = theme;
-  }, [theme]);
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      {!authReady ? (
-        <div className="p-6">Checking session...</div>
-      ) : signedIn || window.location.pathname.startsWith("/login") ? (
-        <>
-          {signedIn && (
-            <button
-              disabled={loggingOut}
-              onClick={async () => {
+  const logOut = async () => {
                 if (loggingOut) return;
                 setLoggingOut(true);
                 setLogoutError(null);
@@ -208,20 +198,23 @@ function RootComponent() {
                   );
                   setLoggingOut(false);
                 }
-              }}
-              className="fixed right-2 top-2 z-50 rounded bg-slate-800 px-3 py-1 text-xs text-white"
-            >
-              {loggingOut ? "Saving..." : "Log out"}
-            </button>
-          )}
-          {signedIn && logoutError && (
-            <div
-              role="alert"
-              className="fixed right-2 top-12 z-50 max-w-sm rounded bg-red-900 p-3 text-sm text-white"
-            >
-              {logoutError}
-            </div>
-          )}
+  };
+
+  const theme = useSettingsStore((s) => s.settings.theme);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark");
+    root.classList.toggle("light", theme === "light");
+    root.style.colorScheme = theme;
+  }, [theme]);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {!authReady ? (
+        <div className="p-6">Loading...</div>
+      ) : signedIn || window.location.pathname.startsWith("/login") ? (
+        <>
           {loggingOut ? (
             <div
               className="flex min-h-screen items-center justify-center p-6"
@@ -230,7 +223,9 @@ function RootComponent() {
               Saving changes before logout...
             </div>
           ) : (
-            <Outlet />
+            <LogoutContext.Provider value={{ logOut, loggingOut, logoutError }}>
+              <Outlet />
+            </LogoutContext.Provider>
           )}
         </>
       ) : null}
