@@ -1,3 +1,4 @@
+import { canRecordTradeOutcome } from "@/lib/backtest/types";
 import { useEffect, useState } from "react";
 
 import { Sheet } from "@/components/layout/Sheet";
@@ -237,13 +238,20 @@ export function RecordResultSheet({
   const [notes, setNotes] = useState("");
   if (!trade) return null;
 
-  const exitPrice = Number(exit || 0);
+  const exitPrice = exit.trim() === "" ? NaN : Number(exit);
   const resultR =
     result === null
       ? 0
       : result === "breakeven"
         ? 0
         : resultRAt(trade, exitPrice);
+
+  const canSave = canRecordTradeOutcome(
+    trade,
+    exitPrice,
+    resultR,
+    result,
+  );
 
   const pick = (r: TradeResult) => {
     setResult(r);
@@ -267,7 +275,7 @@ export function RecordResultSheet({
         </Field>
         <div className="grid grid-cols-3 gap-2 rounded-md border border-border bg-surface p-2 text-center">
           <Stat label="R:R planned" value={rrRatio(trade).toFixed(2)} />
-          <Stat label="Result R" value={resultR.toFixed(2)} />
+          <Stat label="Result R" value={Number.isFinite(resultR) ? resultR.toFixed(2) : "—"} />
           <Stat label="Direction" value={trade.direction} />
         </div>
         <Field label="Mistakes">
@@ -280,9 +288,9 @@ export function RecordResultSheet({
           type="button"
           className="touch-btn w-full font-semibold"
           style={{ backgroundColor: "var(--primary)", color: "var(--primary-foreground)" }}
-          disabled={result === null}
+          disabled={!canSave}
           onClick={() => {
-            if (result === null) return;
+            if (!canSave || result === null) return;
 
             onSave({
               id: uid(),

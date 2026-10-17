@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { ReplaySession } from "@/lib/backtest/types";
-import { resultRAt } from "@/lib/backtest/types";
+import { canRecordTradeOutcome, resultRAt } from "@/lib/backtest/types";
 import { observeTrade } from "@/lib/replay/engine";
 import { getMarketDataProvider } from "@/lib/market";
 import { useSessionStore } from "@/lib/store/sessionStore";
@@ -47,13 +47,18 @@ export function useTradeResolution(
               ? latest.takeProfit
               : latest.stopLoss;
 
+          const resultR = resultRAt(latest, exitPrice);
+          const result = observation.hit === "tp" ? "win" : "loss";
+
+          if (!canRecordTradeOutcome(latest, exitPrice, resultR, result)) return;
+
           useSessionStore.getState().setTrade({
             ...latest,
             status: "closed",
             closedAt: observation.hitAt,
-            result: observation.hit === "tp" ? "win" : "loss",
+            result,
             exitPrice,
-            resultR: resultRAt(latest, exitPrice),
+            resultR,
             maxFavorableR: observation.mfeR,
             maxAdverseR: observation.maeR,
             observed: {

@@ -17,6 +17,7 @@ type PendingSave = {
 
 const pending = new Map<string, PendingSave>();
 const inFlight = new Set<Promise<void>>();
+const keyWriteChains = new Map<string, Promise<void>>();
 let failedSaveCount = 0;
 
 /** True if any queued or already-started save is unfinished. */
@@ -88,13 +89,24 @@ function queueSave(name: string, value: string): void {
 }
 
 async function flushKey(name: string): Promise<void> {
-  const operation = performFlushKey(name);
+  const previous = keyWriteChains.get(name);
+
+  const operation = (async () => {
+    if (previous) await previous;
+    await performFlushKey(name);
+  })();
+
+  keyWriteChains.set(name, operation);
   inFlight.add(operation);
 
   try {
     await operation;
   } finally {
     inFlight.delete(operation);
+
+    if (keyWriteChains.get(name) === operation) {
+      keyWriteChains.delete(name);
+    }
   }
 }
 
@@ -226,12 +238,38 @@ export const supabaseStorage: StateStorage = {
       return;
     }
 
-    const { error } = await supabase
-      .from(TABLE)
-      .delete()
-      .eq("user_id", userId)
-      .eq("key", name);
+    const previous = keyWriteChains.get(name);
 
-    if (error) throw error;
+    const operation = (async () => {
+      if (previous) await previous;
+
+      if (
+        userId !== activeUserId ||
+        requestGeneration !== generation
+      ) {
+        return;
+      }
+
+      const { error } = await supabase
+        .from(TABLE)
+        .delete()
+        .eq("user_id", userId)
+        .eq("key", name);
+
+      if (error) throw error;
+    })();
+
+    keyWriteChains.set(name, operation);
+    inFlight.add(operation);
+
+    try {
+      await operation;
+    } finally {
+      inFlight.delete(operation);
+
+      if (keyWriteChains.get(name) === operation) {
+        keyWriteChains.delete(name);
+      }
+    }
   },
 };

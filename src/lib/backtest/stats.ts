@@ -1,4 +1,4 @@
-import type { JournalRecord } from "./types";
+import { resultRAt, type JournalRecord } from "./types";
 
 export interface Stats {
   total: number;
@@ -61,6 +61,7 @@ export function computeStats(records: JournalRecord[]): Stats {
   let lossStreak = 0;
   const winRs: number[] = [];
   const lossRs: number[] = [];
+  let measuredTrades = 0;
 
   for (const r of chrono) {
     bump(s.bySession, r.session);
@@ -74,16 +75,37 @@ export function computeStats(records: JournalRecord[]): Stats {
     s.trades++;
     bump(s.bySetup, r.analysis.setup.setupType.trim() || "Unlabelled");
     bump(s.byDirection, t.direction);
-    const R = t.resultR ?? 0;
-    s.totalR += R;
+    if (
+      t.status !== "closed" ||
+      (t.result !== "win" &&
+        t.result !== "loss" &&
+        t.result !== "breakeven")
+    ) {
+      continue;
+    }
+
+    const R =
+      typeof t.resultR === "number" && Number.isFinite(t.resultR)
+        ? t.resultR
+        : typeof t.exitPrice === "number" &&
+            Number.isFinite(t.exitPrice) &&
+            Number.isFinite(t.entry) &&
+            Number.isFinite(t.stopLoss) &&
+            Math.abs(t.entry - t.stopLoss) > 0
+          ? resultRAt(t, t.exitPrice)
+          : null;
+    if (R !== null) {
+      s.totalR += R;
+      measuredTrades++;
+    }
     if (t.result === "win") {
       s.wins++;
-      winRs.push(R);
+      if (R !== null) winRs.push(R);
       winStreak++;
       lossStreak = 0;
     } else if (t.result === "loss") {
       s.losses++;
-      lossRs.push(R);
+      if (R !== null) lossRs.push(R);
       lossStreak++;
       winStreak = 0;
     } else {
@@ -93,13 +115,16 @@ export function computeStats(records: JournalRecord[]): Stats {
     }
     s.maxWinStreak = Math.max(s.maxWinStreak, winStreak);
     s.maxLossStreak = Math.max(s.maxLossStreak, lossStreak);
-    s.largestWin = Math.max(s.largestWin, R);
-    s.largestLoss = Math.min(s.largestLoss, R);
+    if (R !== null) {
+      s.largestWin = Math.max(s.largestWin, R);
+      s.largestLoss = Math.min(s.largestLoss, R);
+    }
   }
 
   const decided = s.wins + s.losses;
   s.winRate = decided ? (s.wins / decided) * 100 : 0;
-  s.avgR = s.trades ? s.totalR / s.trades : 0;
+  const resolved = s.wins + s.losses + s.breakeven;
+  s.avgR = measuredTrades ? s.totalR / measuredTrades : 0;
   s.avgWin = winRs.length ? winRs.reduce((a, b) => a + b, 0) / winRs.length : 0;
   s.avgLoss = lossRs.length ? lossRs.reduce((a, b) => a + b, 0) / lossRs.length : 0;
   return s;

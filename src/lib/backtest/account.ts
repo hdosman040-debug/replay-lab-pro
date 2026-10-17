@@ -1,4 +1,4 @@
-import type { JournalRecord, TradePlan } from "./types";
+import { resultRAt, type JournalRecord, type TradePlan } from "./types";
 
 export const DEMO_STARTING_BALANCE = 1000;
 export const DEMO_RISK_PER_TRADE = 25;
@@ -50,7 +50,33 @@ export function computeDemoAccount(records: JournalRecord[]): DemoAccount {
   const trades = records
     .filter((record) => record.kind === "trade" && record.trade)
     .map((record) => record.trade!)
-    .filter((trade) => trade.resultR !== undefined)
+    .filter(
+      (trade) =>
+        trade.status === "closed" &&
+        (trade.result === "win" ||
+          trade.result === "loss" ||
+          trade.result === "breakeven"),
+    )
+    .map((trade) => {
+      const resultR =
+        typeof trade.resultR === "number" &&
+        Number.isFinite(trade.resultR)
+          ? trade.resultR
+          : typeof trade.exitPrice === "number" &&
+              Number.isFinite(trade.exitPrice) &&
+              Number.isFinite(trade.entry) &&
+              Number.isFinite(trade.stopLoss) &&
+              Math.abs(trade.entry - trade.stopLoss) > 0
+            ? resultRAt(trade, trade.exitPrice)
+            : null;
+
+      return resultR === null
+        ? null
+        : { ...trade, resultR };
+    })
+    .filter((trade): trade is TradePlan & { resultR: number } =>
+      trade !== null,
+    )
     .sort((a, b) => (a.closedAt ?? a.plannedAt) - (b.closedAt ?? b.plannedAt));
 
   let balance = DEMO_STARTING_BALANCE;

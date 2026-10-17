@@ -105,9 +105,34 @@ export function rrRatio(t: Pick<TradePlan, "entry" | "stopLoss" | "takeProfit">)
   const r = riskDistance(t);
   return r === 0 ? 0 : rewardDistance(t) / r;
 }
+export function isValidTradeOutcome(
+  trade: Pick<TradePlan, "entry" | "stopLoss">,
+  exitPrice: number,
+): boolean {
+  return (
+    Number.isFinite(trade.entry) &&
+    Number.isFinite(trade.stopLoss) &&
+    Number.isFinite(exitPrice) &&
+    riskDistance(trade) > 0
+  );
+}
+
+export function canRecordTradeOutcome(
+  trade: Pick<TradePlan, "entry" | "stopLoss">,
+  exitPrice: number,
+  resultR: number,
+  result: TradeResult | null,
+): boolean {
+  return (
+    result !== null &&
+    isValidTradeOutcome(trade, exitPrice) &&
+    Number.isFinite(resultR)
+  );
+}
+
 export function resultRAt(t: Pick<TradePlan, "entry" | "stopLoss" | "direction">, exit: number) {
   const r = riskDistance(t);
-  if (r === 0) return 0;
+  if (!Number.isFinite(r) || r <= 0 || !Number.isFinite(exit)) return NaN;
   const pnl = t.direction === "long" ? exit - t.entry : t.entry - exit;
   return pnl / r;
 }
