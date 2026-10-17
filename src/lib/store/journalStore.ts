@@ -19,7 +19,35 @@ export const useJournalStore = create<JournalState>()(
   persist(
     (set) => ({
       records: [],
-      add: (r) => set((s) => ({ records: [r, ...s.records] })),
+      add: (r) =>
+        set((s) => {
+          if (r.kind !== "trade" || !r.trade?.id) {
+            return { records: [r, ...s.records] };
+          }
+
+          const existing = s.records.find(
+            (record) =>
+              record.kind === "trade" &&
+              record.sessionId === r.sessionId &&
+              record.trade?.id === r.trade?.id,
+          );
+
+          if (!existing) {
+            return { records: [r, ...s.records] };
+          }
+
+          return {
+            records: s.records.map((record) =>
+              record.id === existing.id
+                ? {
+                    ...r,
+                    id: existing.id,
+                    createdAt: existing.createdAt,
+                  }
+                : record,
+            ),
+          };
+        }),
       update: (id, patch) =>
         set((s) => ({ records: s.records.map((r) => (r.id === id ? { ...r, ...patch } : r)) })),
       remove: (id) => set((s) => ({ records: s.records.filter((r) => r.id !== id) })),

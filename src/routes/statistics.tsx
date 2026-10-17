@@ -3,13 +3,11 @@ import { useMemo } from "react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
 import { computeStats } from "@/lib/backtest/stats";
+import { selectJournalExecutions } from "@/lib/backtest/uniqueJournalExecutions";
 import { NO_TRADE_REASONS } from "@/lib/backtest/types";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { useStoresHydrated } from "@/lib/store/hydrate";
-import {
-  computeDemoAccount,
-  DEMO_RISK_PER_TRADE,
-} from "@/lib/backtest/account";
+import { computeDemoAccount, DEMO_RISK_PER_TRADE } from "@/lib/backtest/account";
 import {
   ResponsiveContainer,
   LineChart,
@@ -24,9 +22,15 @@ export const Route = createFileRoute("/statistics")({
   head: () => ({
     meta: [
       { title: "Statistics — Replay Lab Pro" },
-      { name: "description", content: "Self-review numbers from your manually recorded US30 backtests." },
+      {
+        name: "description",
+        content: "Self-review numbers from your manually recorded US30 backtests.",
+      },
       { property: "og:title", content: "Statistics — Replay Lab Pro" },
-      { property: "og:description", content: "Self-review numbers from your manually recorded US30 backtests." },
+      {
+        property: "og:description",
+        content: "Self-review numbers from your manually recorded US30 backtests.",
+      },
     ],
   }),
   component: StatsPage,
@@ -43,7 +47,15 @@ function Tile({ label, value, tone }: { label: string; value: string; tone?: str
   );
 }
 
-function Dist({ title, data, labels }: { title: string; data: Record<string, number>; labels?: Record<string, string> }) {
+function Dist({
+  title,
+  data,
+  labels,
+}: {
+  title: string;
+  data: Record<string, number>;
+  labels?: Record<string, string>;
+}) {
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return null;
   const max = Math.max(...entries.map((e) => e[1]));
@@ -58,7 +70,10 @@ function Dist({ title, data, labels }: { title: string; data: Record<string, num
               <span className="num text-muted-foreground">{v}</span>
             </div>
             <div className="mt-1 h-1.5 rounded-full bg-surface-3">
-              <div className="h-full rounded-full" style={{ width: `${(v / max) * 100}%`, backgroundColor: "var(--primary)" }} />
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${(v / max) * 100}%`, backgroundColor: "var(--primary)" }}
+              />
             </div>
           </div>
         ))}
@@ -79,6 +94,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 function StatsPage() {
   const ready = useStoresHydrated();
   const records = useJournalStore((s) => s.records);
+  const selection = useMemo(() => selectJournalExecutions(records), [records]);
   const s = useMemo(() => computeStats(records), [records]);
   const account = useMemo(() => computeDemoAccount(records), [records]);
   const reasonLabels = Object.fromEntries(NO_TRADE_REASONS.map((r) => [r.id, r.label]));
@@ -88,6 +104,19 @@ function StatsPage() {
       <div className="h-full overflow-y-auto">
         <PageHeader title="Statistics" subtitle="Research and self-review — never a signal" />
         <div className="space-y-3 p-3">
+          {ready && selection.ambiguousExecutionCount > 0 && (
+            <div
+              role="alert"
+              className="rounded-lg border border-amber-500/50 bg-surface p-3 text-sm"
+            >
+              <div className="font-semibold">Journal integrity warning</div>
+              <p className="mt-1 text-muted-foreground">
+                {selection.ambiguousExecutionCount} trade execution(s) have conflicting historical
+                records and are excluded from performance calculations. The original journal records
+                have not been deleted.
+              </p>
+            </div>
+          )}
           {ready && s.total === 0 && (
             <p className="p-4 text-center text-sm text-muted-foreground">
               No records yet. Statistics appear once you record results and no-trade decisions.
@@ -97,9 +126,7 @@ function StatsPage() {
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <h2 className="eyebrow">Demo account</h2>
-                <div className="num mt-1 text-2xl font-semibold">
-                  ${account.balance.toFixed(2)}
-                </div>
+                <div className="num mt-1 text-2xl font-semibold">${account.balance.toFixed(2)}</div>
                 <div className="text-xs text-muted-foreground">
                   Started at $1,000 · $25 risk per trade · 2.5%
                 </div>
@@ -113,7 +140,8 @@ function StatsPage() {
                   {account.totalPnl >= 0 ? "+" : ""}${account.totalPnl.toFixed(2)}
                 </div>
                 <div className="num text-xs text-muted-foreground">
-                  {account.returnPercent >= 0 ? "+" : ""}{account.returnPercent.toFixed(2)}%
+                  {account.returnPercent >= 0 ? "+" : ""}
+                  {account.returnPercent.toFixed(2)}%
                 </div>
               </div>
             </div>
@@ -127,7 +155,10 @@ function StatsPage() {
             {account.points.length > 1 ? (
               <div className="h-56 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={account.points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <LineChart
+                    data={account.points}
+                    margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                     <XAxis
                       dataKey="trade"
@@ -177,7 +208,11 @@ function StatsPage() {
             <Tile label="Wins" value={String(s.wins)} tone="var(--bull)" />
             <Tile label="Losses" value={String(s.losses)} tone="var(--bear)" />
             <Tile label="Breakeven" value={String(s.breakeven)} />
-            <Tile label="Total R" value={s.totalR.toFixed(2)} tone={s.totalR >= 0 ? "var(--bull)" : "var(--bear)"} />
+            <Tile
+              label="Total R"
+              value={s.totalR.toFixed(2)}
+              tone={s.totalR >= 0 ? "var(--bull)" : "var(--bear)"}
+            />
             <Tile label="Average R" value={s.avgR.toFixed(2)} />
             <Tile label="Avg win" value={s.avgWin.toFixed(2)} />
             <Tile label="Avg loss" value={s.avgLoss.toFixed(2)} />

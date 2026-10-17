@@ -1,4 +1,5 @@
 import { resultRAt, type JournalRecord } from "./types";
+import { uniqueJournalExecutions } from "./uniqueJournalExecutions";
 
 export interface Stats {
   total: number;
@@ -55,8 +56,9 @@ function bump(map: Record<string, number>, key: string) {
  */
 export function computeStats(records: JournalRecord[]): Stats {
   const s = empty();
-  s.total = records.length;
-  const chrono = [...records].sort((a, b) => a.createdAt - b.createdAt);
+  const uniqueRecords = uniqueJournalExecutions(records);
+  s.total = uniqueRecords.length;
+  const chrono = [...uniqueRecords].sort((a, b) => a.createdAt - b.createdAt);
   let winStreak = 0;
   let lossStreak = 0;
   const winRs: number[] = [];
@@ -77,9 +79,7 @@ export function computeStats(records: JournalRecord[]): Stats {
     bump(s.byDirection, t.direction);
     if (
       t.status !== "closed" ||
-      (t.result !== "win" &&
-        t.result !== "loss" &&
-        t.result !== "breakeven")
+      (t.result !== "win" && t.result !== "loss" && t.result !== "breakeven")
     ) {
       continue;
     }
