@@ -1,3 +1,4 @@
+import { useTradeResolution } from "@/hooks/useTradeResolution";
 import { useTradeActivation } from "@/hooks/useTradeActivation";
 import { useReplayPlayback } from "@/hooks/useReplayPlayback";
 import { createFileRoute } from "@tanstack/react-router";
@@ -126,78 +127,7 @@ function Workspace() {
 
   useTradeActivation(session);
 
-  /*
-   * Active trade resolution.
-   *
-   * This does NOT create or detect setups. The trader already created the
-   * manual trade plan. We only observe replayed M1 candles up to the current
-   * replay clock and close the trade when its SL or TP is actually touched.
-   */
-  useEffect(() => {
-    const trade = session?.trade;
-    if (!session || !trade || trade.status !== "active" || !trade.activatedAt) return;
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const provider = getMarketDataProvider();
-        const observation = await observeTrade(
-          provider,
-          session.symbol,
-          trade,
-          trade.activatedAt!,
-          session.currentTime,
-        );
-
-        if (cancelled || !observation.hit || observation.hitAt === null) return;
-
-        const latest = useSessionStore.getState().sessions[session.id]?.trade;
-
-        if (
-          !latest ||
-          latest.id !== trade.id ||
-          latest.status !== "active" ||
-          latest.afterSnapshotId
-        ) {
-          return;
-        }
-
-        const exitPrice =
-          observation.hit === "tp"
-            ? latest.takeProfit
-            : latest.stopLoss;
-
-        useSessionStore.getState().setTrade({
-          ...latest,
-          status: "closed",
-          closedAt: observation.hitAt,
-          result: observation.hit === "tp" ? "win" : "loss",
-          exitPrice,
-          resultR: resultRAt(latest, exitPrice),
-          maxFavorableR: observation.mfeR,
-          maxAdverseR: observation.maeR,
-          observed: {
-            hit: observation.hit,
-            at: observation.hitAt,
-          },
-        });
-      } catch (error) {
-        console.error("[Trade Resolution] FAILED:", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    session?.id,
-    session?.symbol,
-    session?.currentTime,
-    session?.trade?.id,
-    session?.trade?.status,
-    session?.trade?.activatedAt,
-  ]);
+  useTradeResolution(session);
 
   /*
    * Automatic AFTER-trade snapshot.
