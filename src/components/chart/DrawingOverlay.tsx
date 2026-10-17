@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointer
 
 import { useChartCtx, type CoordApi } from "./chartContext";
 import { isTwoPoint, type Drawing, type PricePoint, type ToolDef } from "@/lib/drawings/types";
+import { drawingPointsChanged, ownsGesture } from "@/lib/drawings/gesture";
 import type { Candle } from "@/lib/market/types";
 import { hhmmToMinutes, SESSION_LABEL, type SessionName, type SessionWindows, zonedParts, zonedToUtc } from "@/lib/time/ny";
 
@@ -23,9 +24,9 @@ interface Props {
 }
 
 type Drag =
-  | { type: "create"; p1: PricePoint; p2: PricePoint; startX: number; startY: number }
-  | { type: "move"; id: string; startX: number; startY: number; startPoints: PricePoint[]; currentPoints: PricePoint[]; moved: boolean }
-  | { type: "point"; id: string; index: number; startPoints: PricePoint[]; currentPoints: PricePoint[] };
+  | { pointerId: number; type: "create"; p1: PricePoint; p2: PricePoint; startX: number; startY: number }
+  | { pointerId: number; type: "move"; id: string; startX: number; startY: number; startPoints: PricePoint[]; currentPoints: PricePoint[]; moved: boolean }
+  | { pointerId: number; type: "point"; id: string; index: number; startPoints: PricePoint[]; currentPoints: PricePoint[] };
 
 const SNAP_PX = 14;
 const sessionCache = new Map<string, SessionName>();
@@ -35,7 +36,11 @@ export function DrawingOverlay(props: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
-  dragRef.current = drag;
+  const activePointerRef = useRef<number | null>(null);
+  const updateDrag = (next: Drag | null) => {
+    dragRef.current = next;
+    setDrag(next);
+  };
   const propsRef = useRef(props);
   propsRef.current = props;
   const coordsRef = useRef(coords);
@@ -73,15 +78,14 @@ export function DrawingOverlay(props: Props) {
 
   // global move / up
   useEffect(() => {
-    if (!drag) return;
     const onMove = (e: PointerEvent) => {
       const c = coordsRef.current;
       const d = dragRef.current;
-      if (!c || !d) return;
+      if (!c || !d || !ownsGesture(d.pointerId, e.pointerId)) return;
       const { x, y } = localXY(e);
       const p = propsRef.current;
       if (d.type === "create") {
-        setDrag({ ...d, p2: toPoint(x, y, c, p.magnet) });
+        updateDrag({ ...d, p2: toPoint(x, y, c, p.magnet) });
       } else if (d.type === "move") {
         const dx = x - d.startX;
         const dy = y - d.startY;
@@ -106,7 +110,7 @@ export function DrawingOverlay(props: Props) {
           };
         });
 
-        setDrag({
+        updateDrag({
           ...d,
           currentPoints: pts,
           moved: true,
@@ -114,14 +118,15 @@ export function DrawingOverlay(props: Props) {
       } else if (d.type === "point") {
         const pts = d.currentPoints.slice();
         pts[d.index] = toPoint(x, y, c, p.magnet);
-        setDrag({
+        updateDrag({
           ...d,
           currentPoints: pts,
         });
       }
     };
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
       const d = dragRef.current;
+      if (!d || !ownsGesture(d.pointerId, e.pointerId)) return;
       const p = propsRef.current;
       const c = coordsRef.current;
       if (d && c) {
@@ -143,16 +148,23 @@ export function DrawingOverlay(props: Props) {
             p.onToolConsumed();
           }
         } else if (d.type === "move" || d.type === "point") {
-          // The pre-drag snapshot was already recorded in beginMove/beginPoint.
-          // Persist only the final position; commit=false avoids another undo snapshot.
-          p.onUpdate(d.id, { points: d.currentPoints }, false);
+          // Commit once, and only when an anchor actually changed.
+          const changed = drawingPointsChanged(d.startPoints, d.currentPoints);
+          if (changed) {
+            p.onUpdate(d.id, { points: d.currentPoints }, true);
+          }
         }
       }
-      setDrag(null);
+      activePointerRef.current = null;
+      dragRef.current = null;
+      updateDrag(null);
     };
-    const onCancel = () => {
-      // Cancelled pointer gestures must not persist a partial drag.
-      setDrag(null);
+    const onCancel = (e: PointerEvent) => {
+      if (!ownsGesture(activePointerRef.current, e.pointerId)) return;
+      // No store updates occur until a successful pointer release.
+      activePointerRef.current = null;
+      dragRef.current = null;
+      updateDrag(null);
     };
 
     window.addEventListener("pointermove", onMove);
@@ -163,16 +175,17 @@ export function DrawingOverlay(props: Props) {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
     };
-  }, [drag, localXY, toPoint]);
+  }, [localXY, toPoint]);
 
   const onRootDown = (e: RPointerEvent<SVGSVGElement>) => {
     const { tool, magnet, replayTime } = props;
-    if (!tool || !coords) return;
+    if (!tool || !coords || !e.isPrimary || activePointerRef.current !== null) return;
     e.preventDefault();
     const { x, y } = localXY(e);
     const p1 = toPoint(x, y, coords, magnet);
     if (isTwoPoint(tool.kind)) {
-      setDrag({ type: "create", p1, p2: p1, startX: x, startY: y });
+      activePointerRef.current = e.pointerId;
+      updateDrag({ pointerId: e.pointerId, type: "create", p1, p2: p1, startX: x, startY: y });
     } else {
       props.onCreate({
         kind: tool.kind,
@@ -188,14 +201,14 @@ export function DrawingOverlay(props: Props) {
   };
 
   const beginMove = (e: RPointerEvent, d: Drawing) => {
-    if (props.tool) return;
+    if (props.tool || !e.isPrimary || activePointerRef.current !== null) return;
     e.stopPropagation();
     e.preventDefault();
     const { x, y } = localXY(e);
     props.onSelect(d.id);
-    // snapshot for undo
-    props.onUpdate(d.id, { points: d.points }, true);
-    setDrag({
+    activePointerRef.current = e.pointerId;
+    updateDrag({
+      pointerId: e.pointerId,
       type: "move",
       id: d.id,
       startX: x,
@@ -206,10 +219,12 @@ export function DrawingOverlay(props: Props) {
     });
   };
   const beginPoint = (e: RPointerEvent, d: Drawing, index: number) => {
+    if (!e.isPrimary || activePointerRef.current !== null) return;
     e.stopPropagation();
     e.preventDefault();
-    props.onUpdate(d.id, { points: d.points }, true);
-    setDrag({
+    activePointerRef.current = e.pointerId;
+    updateDrag({
+      pointerId: e.pointerId,
       type: "point",
       id: d.id,
       index,
