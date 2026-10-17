@@ -1,3 +1,4 @@
+import { useTradeActivation } from "@/hooks/useTradeActivation";
 import { useReplayPlayback } from "@/hooks/useReplayPlayback";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -123,54 +124,7 @@ function Workspace() {
 
   useReplayPlayback(session, ui.playing, advance);
 
-  /*
-   * A planned trade activates only when replayed price actually reaches
-   * the manually defined entry. This does not detect setups or create
-   * trades automatically; it only advances planned -> active.
-   */
-  useEffect(() => {
-    const trade = session?.trade;
-    if (!session || !trade || trade.status !== "planned") return;
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const provider = getMarketDataProvider();
-        const activatedAt = await findActivation(
-          provider,
-          session.symbol,
-          trade,
-          trade.plannedAt,
-          session.currentTime,
-        );
-
-        if (cancelled || activatedAt === null) return;
-
-        const latest = useSessionStore.getState().sessions[session.id]?.trade;
-        if (!latest || latest.id !== trade.id || latest.status !== "planned") return;
-
-        useSessionStore.getState().setTrade({
-          ...latest,
-          status: "active",
-          activatedAt,
-        });
-      } catch (error) {
-        console.error("[Trade Activation] FAILED:", error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    session?.id,
-    session?.symbol,
-    session?.currentTime,
-    session?.trade?.id,
-    session?.trade?.status,
-    session?.trade?.plannedAt,
-  ]);
+  useTradeActivation(session);
 
   /*
    * Active trade resolution.
