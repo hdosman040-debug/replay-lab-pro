@@ -12,9 +12,9 @@ import { TradeSnapshots } from "@/components/journal/TradeSnapshots";
 export const Route = createFileRoute("/journal")({
   head: () => ({
     meta: [
-      { title: "Journal — ICT Trade Terminal" },
+      { title: "Journal — Replay Lab Pro" },
       { name: "description", content: "Every recorded US30 decision: trades taken, trades skipped, and why." },
-      { property: "og:title", content: "Journal — ICT Trade Terminal" },
+      { property: "og:title", content: "Journal — Replay Lab Pro" },
       { property: "og:description", content: "Every recorded US30 decision: trades taken, trades skipped, and why." },
     ],
   }),

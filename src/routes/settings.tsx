@@ -11,9 +11,9 @@ import type { SessionWindows } from "@/lib/time/ny";
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "Settings — ICT Trade Terminal" },
+      { title: "Settings — Replay Lab Pro" },
       { name: "description", content: "Chart, replay, session window and data preferences for your US30 lab." },
-      { property: "og:title", content: "Settings — ICT Trade Terminal" },
+      { property: "og:title", content: "Settings — Replay Lab Pro" },
       { property: "og:description", content: "Chart, replay, session window and data preferences for your US30 lab." },
     ],
   }),

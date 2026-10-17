@@ -33,13 +33,13 @@ import { DEFAULT_TZ, fmtDate, fmtTime, sessionAt, SESSION_LABEL } from "@/lib/ti
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ICT Trade Terminal — US30 replay workstation" },
+      { title: "Replay Lab Pro — US30 replay workstation" },
       {
         name: "description",
         content:
           "Replay US30 history candle by candle, mark liquidity and structure by hand, plan trades and journal every decision.",
       },
-      { property: "og:title", content: "ICT Trade Terminal — US30 replay workstation" },
+      { property: "og:title", content: "Replay Lab Pro — US30 replay workstation" },
       {
         property: "og:description",
         content: "A manual US30 historical replay and backtesting lab built for Android.",
@@ -345,7 +345,7 @@ function Workspace() {
       <AppShell>
         <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
           <div>
-            <h1 className="text-xl font-semibold">ICT Trade Terminal</h1>
+            <h1 className="text-xl font-semibold">Replay Lab Pro</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               A US30 historical laboratory. You mark everything, the terminal only replays price
               and measures what you decided.

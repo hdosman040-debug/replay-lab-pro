@@ -11,9 +11,9 @@ import { fmtDateTime } from "@/lib/time/ny";
 export const Route = createFileRoute("/data")({
   head: () => ({
     meta: [
-      { title: "Data — ICT Trade Terminal" },
+      { title: "Data — Replay Lab Pro" },
       { name: "description", content: "Available US30 datasets, timeframes, coverage and candle counts." },
-      { property: "og:title", content: "Data — ICT Trade Terminal" },
+      { property: "og:title", content: "Data — Replay Lab Pro" },
       { property: "og:description", content: "Available US30 datasets, timeframes, coverage and candle counts." },
     ],
   }),

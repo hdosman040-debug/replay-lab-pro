@@ -6,9 +6,9 @@ import { WORKFLOW_STEPS } from "@/lib/backtest/types";
 export const Route = createFileRoute("/backtest")({
   head: () => ({
     meta: [
-      { title: "Backtest workflow — ICT Trade Terminal" },
+      { title: "Backtest workflow — Replay Lab Pro" },
       { name: "description", content: "The manual US30 backtesting loop, step by step, from context to journal." },
-      { property: "og:title", content: "Backtest workflow — ICT Trade Terminal" },
+      { property: "og:title", content: "Backtest workflow — Replay Lab Pro" },
       { property: "og:description", content: "The manual US30 backtesting loop, step by step, from context to journal." },
     ],
   }),

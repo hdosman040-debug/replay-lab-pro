@@ -23,9 +23,9 @@ import {
 export const Route = createFileRoute("/statistics")({
   head: () => ({
     meta: [
-      { title: "Statistics — ICT Trade Terminal" },
+      { title: "Statistics — Replay Lab Pro" },
       { name: "description", content: "Self-review numbers from your manually recorded US30 backtests." },
-      { property: "og:title", content: "Statistics — ICT Trade Terminal" },
+      { property: "og:title", content: "Statistics — Replay Lab Pro" },
       { property: "og:description", content: "Self-review numbers from your manually recorded US30 backtests." },
     ],
   }),
