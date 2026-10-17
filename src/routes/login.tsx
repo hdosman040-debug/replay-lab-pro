@@ -13,7 +13,7 @@ function Login() {
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("mode") === "reset"
       ? "reset"
-      : "signin"
+      : "signin",
   );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,23 +27,21 @@ function Login() {
   useEffect(() => {
     let active = true;
 
-    const { data: listener } = supabaseAuth.auth.onAuthStateChange(
-      (event, session) => {
-        if (!active) return;
-        if (event === "PASSWORD_RECOVERY") {
-          setMode("reset");
-          setRecoveryReady(true);
-          setError("");
-        }
-        if (
-          event === "INITIAL_SESSION" &&
-          session &&
-          new URLSearchParams(window.location.search).get("mode") === "reset"
-        ) {
-          setRecoveryReady(true);
-        }
+    const { data: listener } = supabaseAuth.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
+      if (event === "PASSWORD_RECOVERY") {
+        setMode("reset");
+        setRecoveryReady(true);
+        setError("");
       }
-    );
+      if (
+        event === "INITIAL_SESSION" &&
+        session &&
+        new URLSearchParams(window.location.search).get("mode") === "reset"
+      ) {
+        setRecoveryReady(true);
+      }
+    });
 
     // A recovery link establishes a temporary authenticated session.
     // Check it as well in case the auth event arrived before this page mounted.
@@ -77,24 +75,21 @@ function Login() {
 
     try {
       if (mode === "forgot") {
-        const redirectTo =
-          `${window.location.origin}/login?mode=reset`;
+        const redirectTo = `${window.location.origin}/login?mode=reset`;
 
-        const { error: authError } =
-          await supabaseAuth.auth.resetPasswordForEmail(
-            email.trim(),
-            { redirectTo }
-          );
+        const { error: authError } = await supabaseAuth.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo,
+        });
 
         if (authError) throw authError;
 
         setMessage(
-          "If an account exists for this email, a password reset link will be sent. Check your inbox and spam folder."
+          "If an account exists for this email, a password reset link will be sent. Check your inbox and spam folder.",
         );
       } else if (mode === "reset") {
         if (!recoveryReady) {
           throw new Error(
-            "Your recovery session is not ready. Open the latest password reset link from your email."
+            "Your recovery session is not ready. Open the latest password reset link from your email.",
           );
         }
 
@@ -105,45 +100,36 @@ function Login() {
           throw new Error("Passwords do not match.");
         }
 
-        const { error: authError } =
-          await supabaseAuth.auth.updateUser({ password });
+        const { error: authError } = await supabaseAuth.auth.updateUser({ password });
 
         if (authError) throw authError;
 
         setMessage("Password updated. Opening your workspace...");
         window.location.replace("/");
       } else if (mode === "signup") {
-        const { data, error: authError } =
-          await supabaseAuth.auth.signUp({
-            email: email.trim(),
-            password,
-          });
+        const { data, error: authError } = await supabaseAuth.auth.signUp({
+          email: email.trim(),
+          password,
+        });
 
         if (authError) throw authError;
 
         if (data.session) {
           window.location.replace("/");
         } else {
-          setMessage(
-            "Account created. Check your email for a confirmation link."
-          );
+          setMessage("Account created. Check your email for a confirmation link.");
         }
       } else {
-        const { error: authError } =
-          await supabaseAuth.auth.signInWithPassword({
-            email: email.trim(),
-            password,
-          });
+        const { error: authError } = await supabaseAuth.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
 
         if (authError) throw authError;
         window.location.replace("/");
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong. Please try again."
-      );
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -208,8 +194,8 @@ function Login() {
           </h1>
 
           <p className="mt-7 max-w-md text-base leading-8 text-slate-400">
-            Study historical price action, review every decision,
-            and build consistency through structured trading research.
+            Study historical price action, review every decision, and build consistency through
+            structured trading research.
           </p>
 
           <div className="mt-12 grid grid-cols-3 gap-3">
@@ -218,16 +204,9 @@ function Login() {
               ["02", "Trade journal"],
               ["03", "Performance insights"],
             ].map(([number, label]) => (
-              <div
-                key={number}
-                className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"
-              >
-                <div className="mb-3 font-mono text-sm text-amber-400">
-                  {number}
-                </div>
-                <div className="text-sm font-medium text-slate-200">
-                  {label}
-                </div>
+              <div key={number} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                <div className="mb-3 font-mono text-sm text-amber-400">{number}</div>
+                <div className="text-sm font-medium text-slate-200">{label}</div>
               </div>
             ))}
           </div>
@@ -257,15 +236,11 @@ function Login() {
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.25em] text-amber-400">
               Your workspace
             </p>
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              {titles[mode]}
-            </h2>
-            <p className="mt-3 leading-6 text-slate-400">
-              {descriptions[mode]}
-            </p>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">{titles[mode]}</h2>
+            <p className="mt-3 leading-6 text-slate-400">{descriptions[mode]}</p>
           </div>
 
-          <form onSubmit={submit} className="space-y-5">
+          <form onSubmit={submit} autoComplete="on" className="space-y-5">
             {mode !== "reset" && (
               <div>
                 <label
@@ -276,9 +251,10 @@ function Login() {
                 </label>
                 <input
                   id="auth-email"
+                  name="username"
                   type="email"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
@@ -290,10 +266,7 @@ function Login() {
             {mode !== "forgot" && (
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <label
-                    htmlFor="auth-password"
-                    className="text-sm font-medium text-slate-200"
-                  >
+                  <label htmlFor="auth-password" className="text-sm font-medium text-slate-200">
                     {mode === "reset" ? "New password" : "Password"}
                   </label>
                   {mode === "signin" && (
@@ -310,14 +283,11 @@ function Login() {
                 <div className="relative">
                   <input
                     id="auth-password"
+                    name="password"
                     type={showPassword ? "text" : "password"}
                     required
                     minLength={mode === "reset" ? 8 : 6}
-                    autoComplete={
-                      mode === "signin"
-                        ? "current-password"
-                        : "new-password"
-                    }
+                    autoComplete={mode === "signin" ? "current-password" : "new-password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
@@ -345,6 +315,7 @@ function Login() {
                 </label>
                 <input
                   id="auth-confirm"
+                  name="confirm-password"
                   type="password"
                   required
                   minLength={8}
@@ -385,7 +356,11 @@ function Login() {
                 : mode === "reset" && !recoveryReady
                   ? "Verifying recovery link..."
                   : buttonLabels[mode]}
-              {!busy && <span className="ml-2" aria-hidden="true">→</span>}
+              {!busy && (
+                <span className="ml-2" aria-hidden="true">
+                  →
+                </span>
+              )}
             </button>
 
             <div className="pt-3 text-center text-sm text-slate-400">
