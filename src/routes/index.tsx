@@ -1,3 +1,4 @@
+import { useReplayPlayback } from "@/hooks/useReplayPlayback";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -120,13 +121,7 @@ function Workspace() {
     }
   }, []);
 
-  /* playback loop — the replay clock is the only source of truth */
-  useEffect(() => {
-    if (!ui.playing || !session) return;
-    const speed = session.speed || 1;
-    const id = window.setInterval(() => void advance(1), Math.max(60, 1000 / speed));
-    return () => window.clearInterval(id);
-  }, [ui.playing, session?.id, session?.speed, advance, session]);
+  useReplayPlayback(session, ui.playing, advance);
 
   /*
    * A planned trade activates only when replayed price actually reaches
