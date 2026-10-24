@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useContext, useEffect, useRef, useState, type FormEvent } from "react";
+import { AuthSessionContext } from "../lib/auth/session";
+import { isSupabaseConfigured } from "../lib/supabaseClient";
 import { supabaseAuth } from "../lib/auth/client";
 
 export const Route = createFileRoute("/login")({
@@ -15,60 +17,46 @@ function Login() {
       ? "reset"
       : "signin",
   );
+  const auth = useContext(AuthSessionContext);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [recoveryReady, setRecoveryReady] = useState(false);
+  const [confirmationPending, setConfirmationPending] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("mode") === "confirmation-pending",
+  );
+  const recoveryReady = Boolean(auth.recoveryUserId && auth.recoveryUserId === auth.user?.id);
 
   useEffect(() => {
-    let active = true;
-
-    const { data: listener } = supabaseAuth.auth.onAuthStateChange((event, session) => {
-      if (!active) return;
-      if (event === "PASSWORD_RECOVERY") {
-        setMode("reset");
-        setRecoveryReady(true);
-        setError("");
-      }
-      if (
-        event === "INITIAL_SESSION" &&
-        session &&
-        new URLSearchParams(window.location.search).get("mode") === "reset"
-      ) {
-        setRecoveryReady(true);
-      }
-    });
-
-    // A recovery link establishes a temporary authenticated session.
-    // Check it as well in case the auth event arrived before this page mounted.
-    if (new URLSearchParams(window.location.search).get("mode") === "reset") {
-      void supabaseAuth.auth.getSession().then(({ data }) => {
-        if (active && data.session) setRecoveryReady(true);
-      });
-    }
-
-    return () => {
-      active = false;
-      listener.subscription.unsubscribe();
-    };
-  }, []);
+    if (recoveryReady) setMode("reset");
+  }, [recoveryReady]);
 
   function switchMode(next: Mode) {
+    if (submitting.current) return;
+    if (formRef.current && mode !== "reset") {
+      setEmail(String(new FormData(formRef.current).get("username") ?? ""));
+    }
     setMode(next);
-    setPassword("");
-    setConfirmPassword("");
+    setShowPassword(false);
     setMessage("");
     setError("");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
-
+    if (submitting.current || !isSupabaseConfigured) return;
+    // Snapshot the actual DOM values before any render or asynchronous work.
+    const fields = new FormData(event.currentTarget);
+    const email = String(fields.get("username") ?? "").trim();
+    const password = String(fields.get("password") ?? "");
+    const confirmPassword = String(fields.get("confirm-password") ?? "");
+    submitting.current = true;
+    setEmail(email);
     setBusy(true);
     setError("");
     setMessage("");
@@ -110,6 +98,7 @@ function Login() {
         const { data, error: authError } = await supabaseAuth.auth.signUp({
           email: email.trim(),
           password,
+          options: { emailRedirectTo: `${window.location.origin}/login` },
         });
 
         if (authError) throw authError;
@@ -117,7 +106,8 @@ function Login() {
         if (data.session) {
           window.location.replace("/");
         } else {
-          setMessage("Account created. Check your email for a confirmation link.");
+          window.history.replaceState(null, "", "/login?mode=confirmation-pending");
+          setConfirmationPending(true);
         }
       } else {
         const { error: authError } = await supabaseAuth.auth.signInWithPassword({
@@ -131,6 +121,7 @@ function Login() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -236,162 +227,211 @@ function Login() {
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.25em] text-amber-400">
               Your workspace
             </p>
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">{titles[mode]}</h2>
-            <p className="mt-3 leading-6 text-slate-400">{descriptions[mode]}</p>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              {confirmationPending ? "Check your email" : titles[mode]}
+            </h2>
+            <p className="mt-3 leading-6 text-slate-400">
+              {confirmationPending
+                ? "Follow the email instructions to continue."
+                : descriptions[mode]}
+            </p>
           </div>
 
-          <form onSubmit={submit} autoComplete="on" className="space-y-5">
-            {mode !== "reset" && (
-              <div>
-                <label
-                  htmlFor="auth-email"
-                  className="mb-2 block text-sm font-medium text-slate-200"
-                >
-                  Email address
-                </label>
-                <input
-                  id="auth-email"
-                  name="username"
-                  type="email"
-                  required
-                  autoComplete="username"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className={fieldClass}
-                />
-              </div>
-            )}
-
-            {mode !== "forgot" && (
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <label htmlFor="auth-password" className="text-sm font-medium text-slate-200">
-                    {mode === "reset" ? "New password" : "Password"}
+          {confirmationPending ? (
+            <div role="status" className="space-y-5">
+              <p>
+                Check your email for the next step. If confirmation is required, use the link before
+                signing in.
+              </p>
+              <a href="/login" className="text-amber-400">
+                Back to sign in
+              </a>
+            </div>
+          ) : (
+            <form
+              key={mode}
+              ref={formRef}
+              id={`${mode}-form`}
+              onSubmit={submit}
+              autoComplete="on"
+              className="space-y-5"
+            >
+              {!isSupabaseConfigured && (
+                <p role="alert">Authentication is not configured. Please contact the site owner.</p>
+              )}
+              {mode === "reset" && !recoveryReady && (
+                <p role="alert">
+                  This recovery link is invalid, expired, or no longer available. Request a new link
+                  from Forgot password.
+                </p>
+              )}
+              {mode === "reset" && recoveryReady && (
+                <div>
+                  <label htmlFor="reset-username">Account email</label>
+                  <input
+                    id="reset-username"
+                    name="username"
+                    type="email"
+                    autoComplete="username"
+                    value={auth.user?.email ?? ""}
+                    readOnly
+                    className={fieldClass}
+                  />
+                </div>
+              )}
+              {mode !== "reset" && (
+                <div>
+                  <label
+                    htmlFor="auth-email"
+                    className="mb-2 block text-sm font-medium text-slate-200"
+                  >
+                    Email address
                   </label>
-                  {mode === "signin" && (
+                  <input
+                    id="auth-email"
+                    name="username"
+                    type="email"
+                    required
+                    autoComplete="username"
+                    defaultValue={email}
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder="you@example.com"
+                    className={fieldClass}
+                  />
+                </div>
+              )}
+
+              {mode !== "forgot" && (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label htmlFor="auth-password" className="text-sm font-medium text-slate-200">
+                      {mode === "reset" ? "New password" : "Password"}
+                    </label>
+                    {mode === "signin" && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => switchMode("forgot")}
+                        className="text-xs font-semibold text-amber-400 hover:text-amber-300"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      id="auth-password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      required
+                      minLength={mode === "signin" ? undefined : 8}
+                      autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                      placeholder="Enter your password"
+                      className={`${fieldClass} pr-20`}
+                    />
                     <button
                       type="button"
-                      onClick={() => switchMode("forgot")}
-                      className="text-xs font-semibold text-amber-400 hover:text-amber-300"
+                      disabled={busy}
+                      onClick={() => setShowPassword((value) => !value)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-2 text-xs font-medium text-slate-400 hover:text-white"
                     >
-                      Forgot password?
+                      {showPassword ? "Hide" : "Show"}
                     </button>
-                  )}
+                  </div>
                 </div>
-
-                <div className="relative">
-                  <input
-                    id="auth-password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    required
-                    minLength={mode === "reset" ? 8 : 6}
-                    autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    className={`${fieldClass} pr-20`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((value) => !value)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-2 text-xs font-medium text-slate-400 hover:text-white"
-                  >
-                    {showPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {mode === "reset" && (
-              <div>
-                <label
-                  htmlFor="auth-confirm"
-                  className="mb-2 block text-sm font-medium text-slate-200"
-                >
-                  Confirm new password
-                </label>
-                <input
-                  id="auth-confirm"
-                  name="confirm-password"
-                  type="password"
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat your new password"
-                  className={fieldClass}
-                />
-              </div>
-            )}
-
-            {error && (
-              <div
-                role="alert"
-                className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-sm leading-6 text-rose-300"
-              >
-                {error}
-              </div>
-            )}
-
-            {message && (
-              <div
-                role="status"
-                className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-300"
-              >
-                {message}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={busy || (mode === "reset" && !recoveryReady)}
-              className="flex min-h-12 w-full items-center justify-center rounded-xl bg-amber-400 px-5 py-3.5 text-sm font-bold text-[#121820] transition hover:bg-amber-300 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy
-                ? "Please wait..."
-                : mode === "reset" && !recoveryReady
-                  ? "Verifying recovery link..."
-                  : buttonLabels[mode]}
-              {!busy && (
-                <span className="ml-2" aria-hidden="true">
-                  →
-                </span>
               )}
-            </button>
 
-            <div className="pt-3 text-center text-sm text-slate-400">
-              {mode === "signin" ? (
-                <>
-                  New to Replay Lab Pro?{" "}
+              {mode === "reset" && (
+                <div>
+                  <label
+                    htmlFor="auth-confirm"
+                    className="mb-2 block text-sm font-medium text-slate-200"
+                  >
+                    Confirm new password
+                  </label>
+                  <input
+                    id="auth-confirm"
+                    name="confirm-password"
+                    type="password"
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    placeholder="Repeat your new password"
+                    className={fieldClass}
+                  />
+                </div>
+              )}
+
+              {error && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-sm leading-6 text-rose-300"
+                >
+                  {error}
+                </div>
+              )}
+
+              {message && (
+                <div
+                  role="status"
+                  className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-300"
+                >
+                  {message}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={!isSupabaseConfigured || busy || (mode === "reset" && !recoveryReady)}
+                className="flex min-h-12 w-full items-center justify-center rounded-xl bg-amber-400 px-5 py-3.5 text-sm font-bold text-[#121820] transition hover:bg-amber-300 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy
+                  ? "Please wait..."
+                  : mode === "reset" && !recoveryReady
+                    ? "Request a new recovery link"
+                    : buttonLabels[mode]}
+                {!busy && (
+                  <span className="ml-2" aria-hidden="true">
+                    →
+                  </span>
+                )}
+              </button>
+
+              <div className="pt-3 text-center text-sm text-slate-400">
+                {mode === "signin" ? (
+                  <>
+                    New to Replay Lab Pro?{" "}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => switchMode("signup")}
+                      className="font-semibold text-amber-400 hover:text-amber-300"
+                    >
+                      Create an account
+                    </button>
+                  </>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => switchMode("signup")}
+                    disabled={busy}
+                    onClick={() => {
+                      if (mode === "reset") {
+                        window.location.replace("/login");
+                      } else {
+                        switchMode("signin");
+                      }
+                    }}
                     className="font-semibold text-amber-400 hover:text-amber-300"
                   >
-                    Create an account
+                    ← Back to sign in
                   </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (mode === "reset") {
-                      window.location.replace("/login");
-                    } else {
-                      switchMode("signin");
-                    }
-                  }}
-                  className="font-semibold text-amber-400 hover:text-amber-300"
-                >
-                  ← Back to sign in
-                </button>
-              )}
-            </div>
-          </form>
+                )}
+              </div>
+            </form>
+          )}
 
           <div className="mt-12 border-t border-white/10 pt-6 text-center text-xs leading-6 text-slate-500">
             Secure authentication powered by Supabase

@@ -93,7 +93,7 @@ The script reads `data/us30/M1/**/*.csv` (git-ignored) and needs `.env.local` (s
 
 ## Persistence
 
-There is **no login**. The app is single-owner: everything is stored under one constant owner ID (`src/lib/owner.ts`). An email sign-in flow was built and then removed, so treat a deployment as private and single-user.
+The app uses Supabase email/password authentication. Journal and replay persistence are scoped to the authenticated user. See [authentication setup and browser acceptance](docs/auth-browser-checklist.md) for deployment settings and password-manager tests.
 
 | Data | Where it lives |
 | --- | --- |
@@ -115,7 +115,7 @@ The repo does not include Supabase migrations yet. The app expects:
 - `user_state` with columns `user_id`, `key`, `value`, `updated_at`, unique on (`user_id`, `key`)
 - `chart_snapshots` with columns `id`, `user_id`, `session_id`, `kind`, `journal_record_id`, `created_at`
 - Storage buckets `market-data-file` and `chart-snapshots`
-- Policies that let the anon key read and write them, since there is no login
+- Authenticated-user policies that restrict private records and snapshots to their owner (verify the deployed RLS/storage policies separately)
 
 ## Tech stack
 
