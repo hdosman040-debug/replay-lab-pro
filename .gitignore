@@ -36,3 +36,7 @@ dist-ssr
 
 # Netlify generated files
 .netlify/
+
+# Browser test artifacts
+playwright-report/
+test-results/

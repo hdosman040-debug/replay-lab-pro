@@ -1,16 +1,19 @@
+import {
+  AuthSessionContext,
+  initialAuthSession,
+  getAuthSession,
+  needsIdentityReload,
+} from "../lib/auth/session";
 import { supabaseAuth } from "../lib/auth/client";
 import { createContext } from "react";
-import {
-  setStorageUser,
-  getStorageUser,
-  flushAndVerifySaves,
-} from "../lib/store/supabaseStorage";
+import { setStorageUser, getStorageUser, flushAndVerifySaves } from "../lib/store/supabaseStorage";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -86,10 +89,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Replay Lab Pro" },
-      { name: "description", content: "Professional historical trading replay, backtesting and journaling." },
+      {
+        name: "description",
+        content: "Professional historical trading replay, backtesting and journaling.",
+      },
       { name: "author", content: "Replay Lab Pro" },
       { property: "og:title", content: "Replay Lab Pro" },
-      { property: "og:description", content: "Professional historical trading replay, backtesting and journaling." },
+      {
+        property: "og:description",
+        content: "Professional historical trading replay, backtesting and journaling.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -123,7 +132,6 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
-
 export const LogoutContext = createContext<{
   logOut: () => Promise<void>;
   loggingOut: boolean;
@@ -132,6 +140,9 @@ export const LogoutContext = createContext<{
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const [authSession, setAuthSession] = useState(initialAuthSession);
+  const [identityTransition, setIdentityTransition] = useState(false);
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [authReady, setAuthReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -142,29 +153,30 @@ function RootComponent() {
     let active = true;
     let initialized = false;
 
-    const { data: listener } = supabaseAuth.auth.onAuthStateChange(
-      (event, session) => {
-        if (!active) return;
+    const { data: listener } = supabaseAuth.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
 
-        const nextUserId = session?.user.id ?? null;
-        const previousUserId = getStorageUser();
+      const nextUserId = session?.user.id ?? null;
+      const previousUserId = getStorageUser();
 
-        if (initialized && previousUserId !== nextUserId) {
-          // A full reload clears account-specific Zustand state.
-          setStorageUser(null);
-          window.location.reload();
-          return;
-        }
+      if (needsIdentityReload(initialized, previousUserId, nextUserId, window.location.pathname)) {
+        // A full reload clears account-specific Zustand state.
+        setStorageUser(null);
+        setAuthReady(false);
+        window.location.reload();
+        return;
+      }
 
-        if (event === "INITIAL_SESSION") {
-          initialized = true;
-        }
+      if (event === "INITIAL_SESSION") {
+        initialized = true;
+      }
 
-        setStorageUser(nextUserId);
-        setSignedIn(!!session);
-        setAuthReady(true);
-      },
-    );
+      if (initialized && previousUserId !== nextUserId) setIdentityTransition(true);
+      setAuthSession(getAuthSession());
+      setStorageUser(nextUserId);
+      setSignedIn(!!session);
+      setAuthReady(true);
+    });
 
     return () => {
       active = false;
@@ -173,33 +185,36 @@ function RootComponent() {
   }, []);
 
   useEffect(() => {
-    if (authReady && !signedIn &&
-        !window.location.pathname.startsWith("/login")) {
+    if (authReady && !signedIn && !window.location.pathname.startsWith("/login")) {
       router.navigate({ to: "/login" });
     }
   }, [authReady, signedIn, router]);
 
+  // A back/forward or client-side navigation must not expose stores belonging
+  // to the prior identity while an auth form is completing its request.
+  useEffect(() => {
+    if (identityTransition && pathname !== "/login") window.location.reload();
+  }, [identityTransition, pathname]);
+
   const logOut = async () => {
-                if (loggingOut) return;
-                setLoggingOut(true);
-                setLogoutError(null);
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setLogoutError(null);
 
-                try {
-                  await flushAndVerifySaves();
+    try {
+      await flushAndVerifySaves();
 
-                  const { error } = await supabaseAuth.auth.signOut();
-                  if (error) throw error;
+      const { error } = await supabaseAuth.auth.signOut();
+      if (error) throw error;
 
-                  window.location.replace("/login");
-                } catch (error) {
-                  console.error("[auth] Logout blocked:", error);
-                  setLogoutError(
-                    error instanceof Error
-                      ? error.message
-                      : "Unable to log out safely. Please retry.",
-                  );
-                  setLoggingOut(false);
-                }
+      window.location.replace("/login");
+    } catch (error) {
+      console.error("[auth] Logout blocked:", error);
+      setLogoutError(
+        error instanceof Error ? error.message : "Unable to log out safely. Please retry.",
+      );
+      setLoggingOut(false);
+    }
   };
 
   const theme = useSettingsStore((s) => s.settings.theme);
@@ -213,20 +228,19 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {!authReady ? (
+      {!authReady || (identityTransition && pathname !== "/login") ? (
         <div className="p-6">Loading...</div>
       ) : signedIn || window.location.pathname.startsWith("/login") ? (
         <>
           {loggingOut ? (
-            <div
-              className="flex min-h-screen items-center justify-center p-6"
-              role="status"
-            >
+            <div className="flex min-h-screen items-center justify-center p-6" role="status">
               Saving changes before logout...
             </div>
           ) : (
             <LogoutContext.Provider value={{ logOut, loggingOut, logoutError }}>
-              <Outlet />
+              <AuthSessionContext.Provider value={authSession}>
+                <Outlet />
+              </AuthSessionContext.Provider>
             </LogoutContext.Provider>
           )}
         </>
