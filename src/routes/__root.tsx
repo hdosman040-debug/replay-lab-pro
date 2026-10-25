@@ -167,11 +167,14 @@ function RootComponent() {
         return;
       }
 
+      // Restoring this document's initial session is not an account switch.
+      // Evaluate transitions before marking initialization complete; otherwise
+      // every authenticated page load sets the reload guard and loops forever.
+      if (initialized && previousUserId !== nextUserId) setIdentityTransition(true);
+
       if (event === "INITIAL_SESSION") {
         initialized = true;
       }
-
-      if (initialized && previousUserId !== nextUserId) setIdentityTransition(true);
       setAuthSession(getAuthSession());
       setStorageUser(nextUserId);
       setSignedIn(!!session);
