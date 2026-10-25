@@ -28,7 +28,7 @@ async function mockAuth(page: Page) {
     const path = new URL(request.url()).pathname;
     const body = request.postDataJSON() ?? {};
     calls.push({ path, body });
-    let response: unknown = {};
+    let response: unknown = path.startsWith("/rest/v1/") ? [] : {};
     if (path.endsWith("/signup")) response = { user, session: null };
     if (path.endsWith("/token")) response = session();
     if (path.endsWith("/user")) response = user;
@@ -152,4 +152,25 @@ test("recovery event survives initialization and updates the identified account"
   await page.getByRole("button", { name: "Update password" }).click();
   await expect(page.getByRole("heading", { name: "Workspace destination" })).toBeVisible();
   expect(calls.find((c) => c.body.password === "NewPassword123!")?.path).toBe("/auth/v1/user");
+});
+
+test("sign-in restores the session in the real workspace without a reload loop", async ({
+  page,
+}) => {
+  await mockAuth(page);
+  const navigations: string[] = [];
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      navigations.push(new URL(request.url()).pathname);
+    }
+  });
+  await page.goto("/login");
+  await populate(page, { username: user.email, password: "SavedPassword123!" });
+  await page.getByRole("button", { name: "Sign in to workspace" }).click();
+  await expect(page.getByRole("button", { name: "Start a replay session" })).toBeVisible();
+  expect(navigations).toEqual(["/login", "/"]);
+  // A fresh document must restore its initial authenticated session exactly once.
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Start a replay session" })).toBeVisible();
+  expect(navigations).toEqual(["/login", "/", "/"]);
 });
