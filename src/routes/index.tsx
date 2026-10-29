@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CandleChart, type CandleChartHandle } from "@/components/chart/CandleChart";
 import { DrawingOverlay } from "@/components/chart/DrawingOverlay";
 import { AppShell } from "@/components/layout/AppShell";
+import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
 import { AnalysisPanel, TradePanel, WorkflowPanel } from "@/components/workspace/panels";
 import {
   JumpToSheet,
@@ -53,7 +54,8 @@ export const Route = createFileRoute("/")({
 });
 
 function Workspace() {
-  const ready = useStoresHydrated();
+  const hydration = useStoresHydrated();
+  const ready = hydration.status === "ready";
   const chartRef = useRef<CandleChartHandle>(null);
   const session = useActiveSession();
   const store = useSessionStore();
@@ -147,7 +149,7 @@ function Workspace() {
     [store.sessions],
   );
 
-  if (!ready) return <AppShell chrome={false}><div /></AppShell>;
+  if (!ready) return <AppShell chrome={false}><StoreHydrationNotice state={hydration} /></AppShell>;
 
   if (!session) {
     return (

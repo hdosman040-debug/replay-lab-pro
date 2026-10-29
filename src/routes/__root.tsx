@@ -156,6 +156,7 @@ function RootComponent() {
     const { data: listener } = supabaseAuth.auth.onAuthStateChange((event, session) => {
       if (!active) return;
 
+      const wasInitialized = initialized;
       const nextUserId = session?.user.id ?? null;
       const previousUserId = getStorageUser();
 
@@ -171,7 +172,7 @@ function RootComponent() {
         initialized = true;
       }
 
-      if (initialized && previousUserId !== nextUserId) setIdentityTransition(true);
+      if (wasInitialized && previousUserId !== nextUserId) setIdentityTransition(true);
       setAuthSession(getAuthSession());
       setStorageUser(nextUserId);
       setSignedIn(!!session);

@@ -11,7 +11,6 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { toPng } from "html-to-image";
 import {
   forwardRef,
   useCallback,
@@ -197,6 +196,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
           lastSize = currentSize;
         }
 
+        const { toPng } = await import("html-to-image");
         const dataUrl = await toPng(root, {
           cacheBust: true,
           pixelRatio: Math.min(Math.max(window.devicePixelRatio || 1, 2), 3),

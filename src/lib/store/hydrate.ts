@@ -40,23 +40,34 @@ async function hydrateForUser(userId: string): Promise<void> {
 }
 
 /** Returns true only after authenticated cloud data has loaded. */
-export function useStoresHydrated(): boolean {
-  const [ready, setReady] = useState(false);
+export type StoreHydrationState = {
+  status: "loading" | "ready" | "error";
+  error: string | null;
+  retry: () => void;
+};
+
+export function useStoresHydrated(): StoreHydrationState {
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<Omit<StoreHydrationState, "retry">>({
+    status: "loading",
+    error: null,
+  });
 
   useEffect(() => {
     const userId = getStorageUser();
 
     if (!userId) {
-      setReady(false);
+      setState({ status: "loading", error: null });
       return;
     }
 
     if (hydratedUser === userId) {
-      setReady(true);
+      setState({ status: "ready", error: null });
       return;
     }
 
     let cancelled = false;
+    setState({ status: "loading", error: null });
 
     if (!pendingHydration) {
       pendingHydration = hydrateForUser(userId).finally(() => {
@@ -66,17 +77,22 @@ export function useStoresHydrated(): boolean {
 
     pendingHydration.then(() => {
       if (!cancelled && getStorageUser() === userId) {
-        setReady(true);
+        setState({ status: "ready", error: null });
       }
     }).catch((error: unknown) => {
       console.error("[hydrate] Account data could not be loaded:", error);
-      if (!cancelled) setReady(false);
+      if (!cancelled) {
+        setState({
+          status: "error",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  return ready;
+  return { ...state, retry: () => setAttempt((value) => value + 1) };
 }

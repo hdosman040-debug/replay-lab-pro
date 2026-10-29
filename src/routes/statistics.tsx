@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
+import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
 import { computeStats } from "@/lib/backtest/stats";
 import { selectJournalExecutions } from "@/lib/backtest/uniqueJournalExecutions";
 import { NO_TRADE_REASONS } from "@/lib/backtest/types";
@@ -98,7 +99,8 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function StatsPage() {
-  const ready = useStoresHydrated();
+  const hydration = useStoresHydrated();
+  const ready = hydration.status === "ready";
   const records = useJournalStore((s) => s.records);
   const selection = useMemo(() => selectJournalExecutions(records), [records]);
   const s = useMemo(() => computeStats(records), [records]);
@@ -111,6 +113,8 @@ function StatsPage() {
     [records, challengeRiskPercent, challengeStartedAt],
   );
   const reasonLabels = Object.fromEntries(NO_TRADE_REASONS.map((r) => [r.id, r.label]));
+
+  if (!ready) return <AppShell><StoreHydrationNotice state={hydration} /></AppShell>;
 
   return (
     <AppShell>

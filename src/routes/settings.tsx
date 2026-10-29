@@ -2,6 +2,7 @@ import { useContext } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
+import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
 import { LogoutContext } from "./__root";
 import { Field } from "@/components/workspace/panels";
 import { SPEEDS } from "@/lib/replay/engine";
@@ -101,14 +102,15 @@ function WindowRow({
 
 function SettingsPage() {
   const logout = useContext(LogoutContext);
-  const ready = useStoresHydrated();
+  const hydration = useStoresHydrated();
+  const ready = hydration.status === "ready";
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
   const reset = useSettingsStore((s) => s.reset);
   const setWindow = (k: keyof SessionWindows, v: [string, string]) =>
     update({ sessions: { ...settings.sessions, [k]: v } });
 
-  if (!ready) return <AppShell><div /></AppShell>;
+  if (!ready) return <AppShell><StoreHydrationNotice state={hydration} /></AppShell>;
 
   return (
     <AppShell>

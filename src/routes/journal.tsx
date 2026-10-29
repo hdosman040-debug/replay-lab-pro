@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
+import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
 import { NO_TRADE_REASONS, rrRatio, type JournalRecord } from "@/lib/backtest/types";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { useSettingsStore } from "@/lib/store/settingsStore";
@@ -24,13 +25,16 @@ export const Route = createFileRoute("/journal")({
 type Filter = "all" | "trade" | "no_trade";
 
 function JournalPage() {
-  const ready = useStoresHydrated();
+  const hydration = useStoresHydrated();
+  const ready = hydration.status === "ready";
   const records = useJournalStore((s) => s.records);
   const remove = useJournalStore((s) => s.remove);
   const update = useJournalStore((s) => s.update);
   const tz = useSettingsStore((s) => s.settings.sessionTimezone);
   const [filter, setFilter] = useState<Filter>("all");
   const [openId, setOpenId] = useState<string | null>(null);
+
+  if (!ready) return <AppShell><StoreHydrationNotice state={hydration} /></AppShell>;
 
   const list = records.filter((r) => filter === "all" || r.kind === filter);
 
