@@ -17,6 +17,8 @@ export interface Settings {
   keepToolActive: boolean;
   lookbackCandles: number;
   traderName: string;
+  propaniumRiskPercent: number;
+  propaniumChallengeStartedAt: number | null;
 }
 
 interface SettingsState {
@@ -38,6 +40,8 @@ export const DEFAULT_SETTINGS: Settings = {
   keepToolActive: false,
   lookbackCandles: 300,
   traderName: "",
+  propaniumRiskPercent: 1,
+  propaniumChallengeStartedAt: null,
 };
 
 export const useSettingsStore = create<SettingsState>()(
