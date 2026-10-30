@@ -5,6 +5,15 @@ export const DEMO_STARTING_BALANCE = 1000;
 export const DEMO_RISK_PER_TRADE = 25;
 export const US30_POINT_VALUE_PER_LOT = 1;
 
+/** Propanium ONE-STEP profile currently listed for the 2.5K challenge. */
+export const PROPANIUM_ONE_STEP_2500 = {
+  startingBalance: 2500,
+  profitTargetPercent: 9,
+  dailyDrawdownPercent: 4,
+  maximumDrawdownPercent: 7,
+  dailyResetTimezone: "UTC",
+} as const;
+
 export function tradeRiskDistance(trade: Pick<TradePlan, "entry" | "stopLoss">) {
   return Math.abs(trade.entry - trade.stopLoss);
 }
@@ -120,5 +129,134 @@ export function computeDemoAccount(records: JournalRecord[]): DemoAccount {
     maxDrawdown,
     maxDrawdownPercent,
     points,
+  };
+}
+
+export type ChallengeState = "not_started" | "active" | "passed" | "breached";
+
+export interface PropaniumChallengeAccount {
+  startingBalance: number;
+  balance: number;
+  totalPnl: number;
+  returnPercent: number;
+  targetBalance: number;
+  targetProgressPercent: number;
+  maximumDrawdownFloor: number;
+  dailyDrawdownFloor: number;
+  dailyLossLimit: number;
+  dailyLossUsed: number;
+  riskPercent: number;
+  state: ChallengeState;
+  breachReason: "daily_drawdown" | "maximum_drawdown" | null;
+  tradesProcessed: number;
+}
+
+/**
+ * Replays journal outcomes through the Propanium 2.5K ONE-STEP limits.
+ * Risk is compounded from current balance. Daily loss uses the UTC day-open
+ * balance and each trade's recorded maximum adverse R when available.
+ */
+export function computePropaniumOneStepAccount(
+  records: JournalRecord[],
+  riskPercent = 1,
+  startedAt: number | null = null,
+): PropaniumChallengeAccount {
+  const safeRiskPercent = Number.isFinite(riskPercent)
+    ? Math.min(10, Math.max(0.1, riskPercent))
+    : 1;
+  const eligibleRecords = startedAt === null ? [] : records.filter((record) => record.createdAt >= startedAt);
+  const trades = uniqueJournalExecutions(eligibleRecords)
+    .filter((record) => record.kind === "trade" && record.trade)
+    .map((record) => record.trade!)
+    .filter(
+      (trade) =>
+        trade.status === "closed" &&
+        (trade.result === "win" || trade.result === "loss" || trade.result === "breakeven"),
+    )
+    .map((trade) => {
+      const resultR =
+        typeof trade.resultR === "number" && Number.isFinite(trade.resultR)
+          ? trade.resultR
+          : typeof trade.exitPrice === "number" && Number.isFinite(trade.exitPrice)
+            ? resultRAt(trade, trade.exitPrice)
+            : null;
+      return resultR === null || !Number.isFinite(resultR) ? null : { ...trade, resultR };
+    })
+    .filter((trade): trade is TradePlan & { resultR: number } => trade !== null)
+    .sort((a, b) => (a.closedAt ?? a.plannedAt) - (b.closedAt ?? b.plannedAt));
+
+  const { startingBalance, profitTargetPercent, dailyDrawdownPercent, maximumDrawdownPercent } =
+    PROPANIUM_ONE_STEP_2500;
+  const targetBalance = startingBalance * (1 + profitTargetPercent / 100);
+  const maximumDrawdownFloor = startingBalance * (1 - maximumDrawdownPercent / 100);
+  let balance = startingBalance;
+  let dayKey = "";
+  let dayStartBalance = startingBalance;
+  let dailyDrawdownFloor = dayStartBalance * (1 - dailyDrawdownPercent / 100);
+  let dailyLossLimit = dayStartBalance * (dailyDrawdownPercent / 100);
+  let dailyLowEquity = dayStartBalance;
+  let state: ChallengeState = startedAt === null ? "not_started" : "active";
+  let breachReason: PropaniumChallengeAccount["breachReason"] = null;
+  let tradesProcessed = 0;
+
+  for (const trade of trades) {
+    if (state !== "active") break;
+    const closeTime = trade.closedAt ?? trade.plannedAt;
+    const nextDayKey = new Date(closeTime * 1000).toISOString().slice(0, 10);
+    if (nextDayKey !== dayKey) {
+      dayKey = nextDayKey;
+      dayStartBalance = balance;
+      dailyDrawdownFloor = dayStartBalance * (1 - dailyDrawdownPercent / 100);
+      dailyLossLimit = dayStartBalance * (dailyDrawdownPercent / 100);
+      dailyLowEquity = balance;
+    }
+
+    const riskAmount = balance * (safeRiskPercent / 100);
+    const adverseR = Math.abs(
+      typeof trade.maxAdverseR === "number" && Number.isFinite(trade.maxAdverseR)
+        ? trade.maxAdverseR
+        : Math.min(0, trade.resultR),
+    );
+    dailyLowEquity = Math.min(dailyLowEquity, balance - riskAmount * adverseR);
+    if (dailyLowEquity <= dailyDrawdownFloor) {
+      state = "breached";
+      breachReason = "daily_drawdown";
+      tradesProcessed++;
+      break;
+    }
+    if (balance - riskAmount * adverseR <= maximumDrawdownFloor) {
+      state = "breached";
+      breachReason = "maximum_drawdown";
+      tradesProcessed++;
+      break;
+    }
+
+    balance += trade.resultR * riskAmount;
+    dailyLowEquity = Math.min(dailyLowEquity, balance);
+    tradesProcessed++;
+    if (balance <= maximumDrawdownFloor) {
+      state = "breached";
+      breachReason = "maximum_drawdown";
+    } else if (balance >= targetBalance) {
+      state = "passed";
+    }
+  }
+
+  const totalPnl = balance - startingBalance;
+  return {
+    startingBalance,
+    balance,
+    totalPnl,
+    returnPercent: (totalPnl / startingBalance) * 100,
+    targetBalance,
+    targetProgressPercent: Math.max(0, Math.min(100, (totalPnl / (targetBalance - startingBalance)) * 100)),
+    maximumDrawdownFloor,
+    dailyDrawdownFloor,
+    dailyLossLimit,
+    dailyLossUsed: Math.max(0, dayStartBalance - dailyLowEquity),
+    riskPercent: safeRiskPercent,
+    state,
+    breachReason,
+    tradesProcessed,
   };
 }

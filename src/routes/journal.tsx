@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
-import { NO_TRADE_REASONS, rrRatio, type JournalRecord } from "@/lib/backtest/types";
+import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
+import { NO_TRADE_REASONS, PRE_TRADE_CHECKS, rrRatio, type JournalRecord } from "@/lib/backtest/types";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { useSettingsStore } from "@/lib/store/settingsStore";
 import { useStoresHydrated } from "@/lib/store/hydrate";
@@ -24,13 +25,16 @@ export const Route = createFileRoute("/journal")({
 type Filter = "all" | "trade" | "no_trade";
 
 function JournalPage() {
-  const ready = useStoresHydrated();
+  const hydration = useStoresHydrated();
+  const ready = hydration.status === "ready";
   const records = useJournalStore((s) => s.records);
   const remove = useJournalStore((s) => s.remove);
   const update = useJournalStore((s) => s.update);
   const tz = useSettingsStore((s) => s.settings.sessionTimezone);
   const [filter, setFilter] = useState<Filter>("all");
   const [openId, setOpenId] = useState<string | null>(null);
+
+  if (!ready) return <AppShell><StoreHydrationNotice state={hydration} /></AppShell>;
 
   const list = records.filter((r) => filter === "all" || r.kind === filter);
 
@@ -151,6 +155,18 @@ function Detail({
         <Row label="Order block" value={a.setup.ob} />
         <Row label="Setup type" value={a.setup.setupType} />
       </section>
+      {record.preTradeChecklist && (
+        <section>
+          <h3 className="eyebrow mb-1">Pre-trade checklist</h3>
+          {PRE_TRADE_CHECKS.map((check) => (
+            <Row
+              key={check.id}
+              label={check.label}
+              value={record.preTradeChecklist?.[check.id] === "yes" ? "Yes" : record.preTradeChecklist?.[check.id] === "no" ? "No" : "Not answered"}
+            />
+          ))}
+        </section>
+      )}
       {t && (
           <>
             <section>

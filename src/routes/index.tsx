@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CandleChart, type CandleChartHandle } from "@/components/chart/CandleChart";
 import { DrawingOverlay } from "@/components/chart/DrawingOverlay";
 import { AppShell } from "@/components/layout/AppShell";
+import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
 import { AnalysisPanel, TradePanel, WorkflowPanel } from "@/components/workspace/panels";
 import {
   JumpToSheet,
@@ -20,7 +21,7 @@ import { ToolStrip } from "@/components/workspace/ToolStrip";
 import { NewsBanner, NewsPanel } from "@/components/workspace/NewsPanel";
 import { useNewsAlerts } from "@/lib/news/useNewsAlerts";
 import { TradeLevels } from "@/components/workspace/TradeLevels";
-import type { TradePlan } from "@/lib/backtest/types";
+import { isPreTradeChecklistReady, type TradePlan } from "@/lib/backtest/types";
 import { getTool } from "@/lib/drawings/types";
 import { TF_SECONDS, TIMEFRAMES, type Timeframe } from "@/lib/market/types";
 import { SPEEDS } from "@/lib/replay/engine";
@@ -53,7 +54,8 @@ export const Route = createFileRoute("/")({
 });
 
 function Workspace() {
-  const ready = useStoresHydrated();
+  const hydration = useStoresHydrated();
+  const ready = hydration.status === "ready";
   const chartRef = useRef<CandleChartHandle>(null);
   const session = useActiveSession();
   const store = useSessionStore();
@@ -147,7 +149,7 @@ function Workspace() {
     [store.sessions],
   );
 
-  if (!ready) return <AppShell chrome={false}><div /></AppShell>;
+  if (!ready) return <AppShell chrome={false}><StoreHydrationNotice state={hydration} /></AppShell>;
 
   if (!session) {
     return (
@@ -350,11 +352,18 @@ function Workspace() {
           </div>
           {panelOpen && (
             <div className="border-t border-border">
-              {ui.panelTab === "workflow" && <WorkflowPanel session={session} onToggle={store.toggleWorkflowStep} />}
+              {ui.panelTab === "workflow" && (
+                <WorkflowPanel
+                  session={session}
+                  onToggle={store.toggleWorkflowStep}
+                  onAnswer={store.setPreTradeAnswer}
+                />
+              )}
               {ui.panelTab === "analysis" && <AnalysisPanel analysis={session.analysis} onChange={store.setAnalysis} />}
               {ui.panelTab === "trade" && (
                 <TradePanel
                   trade={session.trade}
+                  canPlan={isPreTradeChecklistReady(session.preTradeChecklist)}
                   lastPrice={lastCandle?.close ?? null}
                   onCreate={(direction) => {
                     const p = lastCandle?.close ?? 0;
@@ -371,7 +380,10 @@ function Workspace() {
                     store.setTrade(plan);
                   }}
                   onPatch={(patch) => session.trade && store.setTrade({ ...session.trade, ...patch })}
-                  onRemove={() => store.setTrade(null)}
+                  onRemove={() => {
+                    store.setTrade(null);
+                    store.resetPreTradeChecklist();
+                  }}
                   onRecord={() => ui.setSheet("recordResult")}
                   onNoTrade={() => ui.setSheet("noTrade")}
                   onCaptureBefore={async () => {
@@ -482,6 +494,7 @@ function Workspace() {
               onClose={() => ui.setSheet(null)}
               onSave={(record) => {
                 addRecord(record);
+                store.resetPreTradeChecklist();
                 ui.setSheet(null);
               }}
             />

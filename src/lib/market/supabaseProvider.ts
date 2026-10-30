@@ -47,7 +47,14 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 const supabase: SupabaseClient = createClient(
   SUPABASE_URL ?? "",
   SUPABASE_ANON_KEY ?? "",
-  { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
+  {
+    auth: {
+      storageKey: "replay-lab-market-data-auth",
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  },
 );
 
 function parseNumber(value: string): number {
@@ -120,6 +127,20 @@ function monthPath(year: number, month: number): string {
   return `${ROOT}/${year}/${year}-${String(month).padStart(2, "0")}.csv`;
 }
 
+/** First candle whose timestamp is greater than or equal to `time`. */
+function lowerBoundTime(candles: Candle[], time: number): number {
+  let lo = 0;
+  let hi = candles.length;
+
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (candles[mid]!.time < time) lo = mid + 1;
+    else hi = mid;
+  }
+
+  return lo;
+}
+
 function monthsBetween(
   from: number,
   to: number,
@@ -161,6 +182,9 @@ type MonthCacheEntry = {
  * newest = last key
  */
 const monthCache = new Map<string, MonthCacheEntry>();
+type CandleBounds = { earliest: number; latest: number };
+const boundsCache = new Map<string, CandleBounds | null>();
+const boundsPromises = new Map<string, Promise<CandleBounds | null>>();
 
 type AvailableMonth = {
   year: number;
@@ -327,11 +351,15 @@ async function loadM1Range(from: number, to: number): Promise<Candle[]> {
     months.map(({ year, month }) => loadMonth(year, month)),
   );
 
-  const candles = chunks
-    .flat()
-    .filter((c) => c.time >= from && c.time < to);
+  // Month files are sorted when parsed. Slice each cached month to the
+  // requested range instead of scanning every candle for each replay step.
+  const candles = chunks.flatMap((chunk) =>
+    chunk.slice(lowerBoundTime(chunk, from), lowerBoundTime(chunk, to)),
+  );
 
-  candles.sort((a, b) => a.time - b.time);
+  // A single parsed month is already ordered. Cross-month broker-time pads
+  // can overlap, so retain the defensive merge sort only for multi-month reads.
+  if (chunks.length > 1) candles.sort((a, b) => a.time - b.time);
 
   return candles;
 }
@@ -383,6 +411,24 @@ class SupabaseMarketDataProviderImpl {
       return null;
     }
 
+    const key = `${symbol}:${timeframe}`;
+    if (boundsCache.has(key)) return boundsCache.get(key) ?? null;
+
+    const inFlight = boundsPromises.get(key);
+    if (inFlight) return inFlight;
+
+    const request = this.readBounds(timeframe);
+    boundsPromises.set(key, request);
+    try {
+      const bounds = await request;
+      boundsCache.set(key, bounds);
+      return bounds;
+    } finally {
+      if (boundsPromises.get(key) === request) boundsPromises.delete(key);
+    }
+  }
+
+  private async readBounds(timeframe: Timeframe): Promise<CandleBounds | null> {
     const availableMonths = await listAvailableMonths();
 
     if (availableMonths.length === 0) {

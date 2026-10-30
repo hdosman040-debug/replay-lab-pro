@@ -11,9 +11,10 @@ export function useReplayPlayback(
   advance: (count: number) => Promise<void>,
 ) {
   useEffect(() => {
-    if (!playing || !session) return;
+    const sessionId = session?.id;
+    if (!playing || !sessionId) return;
 
-    const speed = session.speed || 1;
+    const speed = session?.speed || 1;
 
     const id = window.setInterval(
       () => void advance(1),
@@ -21,5 +22,5 @@ export function useReplayPlayback(
     );
 
     return () => window.clearInterval(id);
-  }, [playing, session?.id, session?.speed, advance, session]);
+  }, [playing, session?.id, session?.speed, advance]);
 }

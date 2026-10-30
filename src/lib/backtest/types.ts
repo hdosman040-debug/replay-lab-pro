@@ -154,6 +154,27 @@ export const WORKFLOW_STEPS = [
 
 export type WorkflowStepId = (typeof WORKFLOW_STEPS)[number]["id"];
 
+export const PRE_TRADE_CHECKS = [
+  { id: "setup", category: "Setup", label: "This matches my written setup rules." },
+  { id: "context", category: "Setup", label: "I reviewed higher-timeframe context and the liquidity objective." },
+  { id: "confirmation", category: "Setup", label: "My required entry confirmation is present." },
+  { id: "risk", category: "Risk", label: "I can define a logical invalidation and keep risk within my limit." },
+  { id: "reward", category: "Risk", label: "My tested reward-to-risk rule is clear for this setup." },
+  { id: "news", category: "Risk", label: "I checked scheduled high-impact news for this replay period." },
+  { id: "focus", category: "Readiness", label: "I am not entering from boredom, FOMO, or an urge to recover a loss." },
+  { id: "loss", category: "Readiness", label: "I can accept the planned loss without changing my rules." },
+] as const;
+
+export type PreTradeCheckId = (typeof PRE_TRADE_CHECKS)[number]["id"];
+export type PreTradeAnswer = "yes" | "no";
+export type PreTradeChecklist = Partial<Record<PreTradeCheckId, PreTradeAnswer>>;
+
+export const emptyPreTradeChecklist = (): PreTradeChecklist => ({});
+
+export function isPreTradeChecklistReady(checklist?: PreTradeChecklist): boolean {
+  return PRE_TRADE_CHECKS.every((check) => checklist?.[check.id] === "yes");
+}
+
 export interface ReplaySession {
   id: string;
   name: string;
@@ -166,6 +187,8 @@ export interface ReplaySession {
   analysis: Analysis;
   trade: TradePlan | null;
   workflowDone: WorkflowStepId[];
+  /** Manual pre-entry answers; absent on older saved sessions. */
+  preTradeChecklist?: PreTradeChecklist;
   createdAt: number; // wall clock ms
   updatedAt: number;
 }
@@ -201,6 +224,8 @@ export interface JournalRecord {
   analysis: Analysis;
   trade: TradePlan | null;
   noTradeReason?: NoTradeReason;
+  /** Answers captured at the moment this decision was journaled. */
+  preTradeChecklist?: PreTradeChecklist;
   mistakes: string;
   notes: string;
   /** chart state snapshot for later review */

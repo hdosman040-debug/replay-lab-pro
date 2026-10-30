@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
+import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
 import { getMarketDataProvider } from "@/lib/market";
 import type { DatasetInfo } from "@/lib/market/types";
 import { useSettingsStore } from "@/lib/store/settingsStore";
@@ -21,7 +22,8 @@ export const Route = createFileRoute("/data")({
 });
 
 function DataPage() {
-  const ready = useStoresHydrated();
+  const hydration = useStoresHydrated();
+  const ready = hydration.status === "ready";
   const tz = useSettingsStore((s) => s.settings.sessionTimezone);
   const [sets, setSets] = useState<DatasetInfo[] | null>(null);
 
@@ -40,6 +42,8 @@ function DataPage() {
 
   const provider = getMarketDataProvider().id;
 
+  if (!ready) return <AppShell><StoreHydrationNotice state={hydration} /></AppShell>;
+
   return (
     <AppShell>
       <div className="h-full overflow-y-auto">
@@ -49,7 +53,7 @@ function DataPage() {
             The terminal reads price through a single data door, so real US30 history can be
             plugged in later without touching the replay engine.
           </p>
-          {!sets || !ready ? (
+          {!sets ? (
             <p className="text-sm text-muted-foreground">Loading datasets…</p>
           ) : sets.length === 0 ? (
             <p className="text-sm text-muted-foreground">No datasets available.</p>

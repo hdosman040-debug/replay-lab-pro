@@ -4,9 +4,13 @@ import {
   rrRatio,
   riskDistance,
   rewardDistance,
+  isPreTradeChecklistReady,
+  PRE_TRADE_CHECKS,
   WORKFLOW_STEPS,
   type Analysis,
   type Bias,
+  type PreTradeAnswer,
+  type PreTradeCheckId,
   type PremiumDiscount,
   type ReplaySession,
   type TradePlan,
@@ -98,13 +102,61 @@ const PD: { id: PremiumDiscount; label: string }[] = [
 export function WorkflowPanel({
   session,
   onToggle,
+  onAnswer,
 }: {
   session: ReplaySession;
   onToggle: (id: WorkflowStepId) => void;
+  onAnswer: (id: PreTradeCheckId, answer: PreTradeAnswer) => void;
 }) {
   const done = session.workflowDone;
+  const answers = session.preTradeChecklist ?? {};
+  const passed = PRE_TRADE_CHECKS.filter((check) => answers[check.id] === "yes").length;
+  const failed = PRE_TRADE_CHECKS.filter((check) => answers[check.id] === "no").length;
+  const ready = isPreTradeChecklistReady(answers);
   return (
     <div className="space-y-1.5 p-3">
+      <section className="mb-3 rounded-lg border border-border bg-surface p-3">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="eyebrow">Pre-trade gate</h3>
+          <span className="num text-[11px]" style={{ color: ready ? "var(--bull)" : "var(--muted-foreground)" }}>
+            {ready ? "READY" : `${passed}/${PRE_TRADE_CHECKS.length} pass${failed ? ` · ${failed} fail` : ""}`}
+          </span>
+        </div>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Answer from your own tested rules. Every item must be Yes before a trade plan can be created.
+        </p>
+        {(["Setup", "Risk", "Readiness"] as const).map((category) => (
+          <div key={category} className="mb-3 last:mb-0">
+            <div className="eyebrow mb-1.5">{category}</div>
+            <div className="space-y-2">
+              {PRE_TRADE_CHECKS.filter((check) => check.category === category).map((check) => {
+                const answer = answers[check.id];
+                return (
+                  <div key={check.id} className="rounded-md border border-border p-2.5">
+                    <p className="mb-2 text-xs leading-relaxed">{check.label}</p>
+                    <div className="flex gap-1.5">
+                      {(["yes", "no"] as const).map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className="chip min-w-16 justify-center disabled:cursor-not-allowed disabled:opacity-50"
+                          data-active={answer === value}
+                          aria-pressed={answer === value}
+                          disabled={Boolean(session.trade)}
+                          onClick={() => onAnswer(check.id, value)}
+                        >
+                          {value === "yes" ? "Yes" : "No"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {session.trade && <p className="mt-2 text-xs text-muted-foreground">Answers are locked to this planned trade.</p>}
+      </section>
       <p className="text-xs text-muted-foreground">
         A checklist, not a guide — nothing is detected for you. Tick steps as you do them.
       </p>
@@ -266,6 +318,7 @@ export function TradePanel({
   onRecord,
   onNoTrade,
   onCaptureBefore,
+  canPlan,
 }: {
   trade: TradePlan | null;
   lastPrice: number | null;
@@ -275,6 +328,7 @@ export function TradePanel({
   onRecord: () => void;
   onNoTrade: () => void;
   onCaptureBefore: () => void;
+  canPlan: boolean;
 }) {
   if (!trade) {
     return (
@@ -285,21 +339,24 @@ export function TradePanel({
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            className="touch-btn border border-border font-semibold"
+            className="touch-btn border border-border font-semibold disabled:cursor-not-allowed disabled:opacity-40"
             style={{ color: "var(--bull)" }}
             onClick={() => onCreate("long")}
+            disabled={!canPlan}
           >
             Plan long
           </button>
           <button
             type="button"
-            className="touch-btn border border-border font-semibold"
+            className="touch-btn border border-border font-semibold disabled:cursor-not-allowed disabled:opacity-40"
             style={{ color: "var(--bear)" }}
             onClick={() => onCreate("short")}
+            disabled={!canPlan}
           >
             Plan short
           </button>
         </div>
+        {!canPlan && <p className="text-xs text-muted-foreground">Complete every pre-trade check with Yes to unlock trade planning.</p>}
         <button type="button" className="touch-btn w-full border border-border text-sm" onClick={onNoTrade}>
           Record a no-trade decision
         </button>

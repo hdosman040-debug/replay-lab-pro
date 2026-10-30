@@ -2,12 +2,19 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
+import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
 import { computeStats } from "@/lib/backtest/stats";
 import { selectJournalExecutions } from "@/lib/backtest/uniqueJournalExecutions";
 import { NO_TRADE_REASONS } from "@/lib/backtest/types";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { useStoresHydrated } from "@/lib/store/hydrate";
-import { computeDemoAccount, DEMO_RISK_PER_TRADE } from "@/lib/backtest/account";
+import {
+  computeDemoAccount,
+  computePropaniumOneStepAccount,
+  DEMO_RISK_PER_TRADE,
+  PROPANIUM_ONE_STEP_2500,
+} from "@/lib/backtest/account";
+import { useSettingsStore } from "@/lib/store/settingsStore";
 import {
   ResponsiveContainer,
   LineChart,
@@ -92,12 +99,22 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function StatsPage() {
-  const ready = useStoresHydrated();
+  const hydration = useStoresHydrated();
+  const ready = hydration.status === "ready";
   const records = useJournalStore((s) => s.records);
   const selection = useMemo(() => selectJournalExecutions(records), [records]);
   const s = useMemo(() => computeStats(records), [records]);
   const account = useMemo(() => computeDemoAccount(records), [records]);
+  const challengeRiskPercent = useSettingsStore((s) => s.settings.propaniumRiskPercent);
+  const challengeStartedAt = useSettingsStore((s) => s.settings.propaniumChallengeStartedAt);
+  const updateSettings = useSettingsStore((s) => s.update);
+  const challenge = useMemo(
+    () => computePropaniumOneStepAccount(records, challengeRiskPercent, challengeStartedAt),
+    [records, challengeRiskPercent, challengeStartedAt],
+  );
   const reasonLabels = Object.fromEntries(NO_TRADE_REASONS.map((r) => [r.id, r.label]));
+
+  if (!ready) return <AppShell><StoreHydrationNotice state={hydration} /></AppShell>;
 
   return (
     <AppShell>
@@ -199,6 +216,79 @@ function StatsPage() {
                 Record a trade to start the $1,000 account equity curve.
               </p>
             )}
+          </section>
+
+          <section className="rounded-lg border border-border bg-surface p-3">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="eyebrow">Propanium · $2,500 ONE-STEP</h2>
+                <div className="num mt-1 text-2xl font-semibold">${challenge.balance.toFixed(2)}</div>
+                <div className="text-xs text-muted-foreground">
+                  Target ${challenge.targetBalance.toFixed(0)} · max loss floor ${challenge.maximumDrawdownFloor.toFixed(0)} · daily reset 00:00 {PROPANIUM_ONE_STEP_2500.dailyResetTimezone}
+                </div>
+              </div>
+              <div
+                className="rounded-full border px-2.5 py-1 text-xs font-semibold"
+                style={{
+                  borderColor: challenge.state === "breached" ? "var(--bear)" : challenge.state === "passed" ? "var(--bull)" : "var(--border)",
+                  color: challenge.state === "breached" ? "var(--bear)" : challenge.state === "passed" ? "var(--bull)" : "var(--muted-foreground)",
+                }}
+              >
+                {challenge.state === "not_started" ? "Ready to start" : challenge.state === "active" ? "In progress" : challenge.state === "passed" ? "Target reached" : "Rule breached"}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="touch-btn mb-3 w-full border border-border text-sm"
+              onClick={() => {
+                if (challengeStartedAt !== null && !window.confirm("Restart this challenge? Its current replay run will be reset.")) return;
+                updateSettings({ propaniumChallengeStartedAt: Date.now() });
+              }}
+            >
+              {challengeStartedAt === null ? "Start challenge replay" : "Restart challenge replay"}
+            </button>
+
+            <label className="mb-3 flex items-center justify-between gap-3 text-xs">
+              <span>Risk per trade (% of current balance)</span>
+              <input
+                className="panel-input num w-24 text-right"
+                type="number"
+                min="0.1"
+                max="10"
+                step="0.1"
+                value={challengeRiskPercent}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  if (Number.isFinite(value) && value >= 0.1 && value <= 10) {
+                    updateSettings({ propaniumRiskPercent: value });
+                  }
+                }}
+                aria-label="Challenge risk per trade percent"
+              />
+            </label>
+
+            <div className="mb-1 flex justify-between text-xs">
+              <span>Profit target progress</span>
+              <span className="num">{challenge.returnPercent.toFixed(2)}% / {PROPANIUM_ONE_STEP_2500.profitTargetPercent}%</span>
+            </div>
+            <div className="mb-3 h-2 overflow-hidden rounded-full bg-surface-3">
+              <div className="h-full rounded-full" style={{ width: `${challenge.targetProgressPercent}%`, backgroundColor: "var(--primary)" }} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-center">
+              <Stat label="Daily loss used" value={`$${challenge.dailyLossUsed.toFixed(2)} / $${challenge.dailyLossLimit.toFixed(2)}`} />
+              <Stat label="Trades counted" value={String(challenge.tradesProcessed)} />
+            </div>
+
+            {challenge.state === "breached" && (
+              <p role="alert" className="mt-3 text-xs" style={{ color: "var(--bear)" }}>
+                {challenge.breachReason === "daily_drawdown" ? "Daily drawdown limit reached." : "Maximum drawdown limit reached."}
+              </p>
+            )}
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Counts trades journaled after this run starts. This estimates the target and drawdown rules from replay records; it does not reproduce broker fills, costs, Smart Exit, news windows, or inactivity enforcement.
+            </p>
           </section>
 
           <div className="grid grid-cols-3 gap-2">
