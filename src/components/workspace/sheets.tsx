@@ -301,6 +301,7 @@ export function RecordResultSheet({
               decisionTime: session.currentTime,
               session: SESSION_LABEL[sessionAt(session.currentTime, sessions)],
               analysis: session.analysis,
+              preTradeChecklist: session.preTradeChecklist,
               trade: {
                 ...trade,
                 status: "closed",
@@ -377,6 +378,7 @@ export function NoTradeSheet({
               decisionTime: session.currentTime,
               session: SESSION_LABEL[sessionAt(session.currentTime, sessions)],
               analysis: session.analysis,
+              preTradeChecklist: session.preTradeChecklist,
               trade: null,
               noTradeReason: reason,
               mistakes: "",

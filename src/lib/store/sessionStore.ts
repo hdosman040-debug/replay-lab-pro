@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { supabaseStorage } from "./supabaseStorage";
 
-import { emptyAnalysis, rewindTrade, type Analysis, type ReplaySession, type TradePlan, type WorkflowStepId } from "@/lib/backtest/types";
+import { emptyAnalysis, emptyPreTradeChecklist, rewindTrade, type Analysis, type PreTradeAnswer, type PreTradeCheckId, type ReplaySession, type TradePlan, type WorkflowStepId } from "@/lib/backtest/types";
 import type { Drawing } from "@/lib/drawings/types";
 import type { Symbol, Timeframe } from "@/lib/market/types";
 
@@ -32,6 +32,8 @@ interface SessionState {
   /* analysis / trade / workflow */
   setAnalysis: (fn: (a: Analysis) => Analysis) => void;
   setTrade: (t: TradePlan | null) => void;
+  setPreTradeAnswer: (id: PreTradeCheckId, answer: PreTradeAnswer) => void;
+  resetPreTradeChecklist: () => void;
   toggleWorkflowStep: (id: WorkflowStepId) => void;
 }
 
@@ -77,6 +79,7 @@ export const useSessionStore = create<SessionState>()(
             analysis: emptyAnalysis(),
             trade: null,
             workflowDone: [],
+            preTradeChecklist: emptyPreTradeChecklist(),
             createdAt: now,
             updatedAt: now,
           };
@@ -147,6 +150,17 @@ export const useSessionStore = create<SessionState>()(
         setTrade: (t) => {
           const s = active();
           if (s) get().patchSession(s.id, { trade: t });
+        },
+        setPreTradeAnswer: (id, answer) => {
+          const s = active();
+          if (!s || s.trade) return;
+          get().patchSession(s.id, {
+            preTradeChecklist: { ...s.preTradeChecklist, [id]: answer },
+          });
+        },
+        resetPreTradeChecklist: () => {
+          const s = active();
+          if (s) get().patchSession(s.id, { preTradeChecklist: emptyPreTradeChecklist() });
         },
         toggleWorkflowStep: (id) => {
           const s = active();

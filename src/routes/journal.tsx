@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
 import { StoreHydrationNotice } from "@/components/layout/StoreHydrationNotice";
-import { NO_TRADE_REASONS, rrRatio, type JournalRecord } from "@/lib/backtest/types";
+import { NO_TRADE_REASONS, PRE_TRADE_CHECKS, rrRatio, type JournalRecord } from "@/lib/backtest/types";
 import { useJournalStore } from "@/lib/store/journalStore";
 import { useSettingsStore } from "@/lib/store/settingsStore";
 import { useStoresHydrated } from "@/lib/store/hydrate";
@@ -155,6 +155,18 @@ function Detail({
         <Row label="Order block" value={a.setup.ob} />
         <Row label="Setup type" value={a.setup.setupType} />
       </section>
+      {record.preTradeChecklist && (
+        <section>
+          <h3 className="eyebrow mb-1">Pre-trade checklist</h3>
+          {PRE_TRADE_CHECKS.map((check) => (
+            <Row
+              key={check.id}
+              label={check.label}
+              value={record.preTradeChecklist?.[check.id] === "yes" ? "Yes" : record.preTradeChecklist?.[check.id] === "no" ? "No" : "Not answered"}
+            />
+          ))}
+        </section>
+      )}
       {t && (
           <>
             <section>
