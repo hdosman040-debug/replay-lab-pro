@@ -47,7 +47,14 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 const supabase: SupabaseClient = createClient(
   SUPABASE_URL ?? "",
   SUPABASE_ANON_KEY ?? "",
-  { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
+  {
+    auth: {
+      storageKey: "replay-lab-market-data-auth",
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  },
 );
 
 function parseNumber(value: string): number {
