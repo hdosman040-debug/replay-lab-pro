@@ -217,7 +217,8 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
 
   useLayoutEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    const root = chartRootRef.current;
+    if (!el || !root) return;
     const bg = cssVar("--surface", "#14161a");
     const text = cssVar("--muted-foreground", "#8b93a1");
     const grid = cssVar("--chart-grid", "#22262d");
@@ -382,11 +383,84 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
 
     const ro = new ResizeObserver(pump);
     ro.observe(el);
+
+    // Lightweight Charts' native pinch gesture scales the time axis. Add a
+    // vertical pinch scale for the price axis while leaving native X zoom on.
+    let pricePinchStart: {
+      verticalSpan: number;
+      range: { from: number; to: number };
+      anchorPrice: number;
+    } | null = null;
+    const onPricePinchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 2) {
+        pricePinchStart = null;
+        return;
+      }
+
+      const range = chart.priceScale("right").getVisibleRange();
+      if (!range || range.to <= range.from) return;
+
+      const rect = root.getBoundingClientRect();
+      const centerY =
+        ((event.touches[0]?.clientY ?? rect.top) +
+          (event.touches[1]?.clientY ?? rect.top)) /
+        2;
+      const paneHeight = chart.paneSize().height;
+      const paneY = Math.max(0, Math.min(paneHeight, centerY - rect.top));
+      const anchorPrice = series.coordinateToPrice(paneY) ?? (range.from + range.to) / 2;
+
+      pricePinchStart = {
+        verticalSpan: Math.abs(
+          (event.touches[0]?.clientY ?? 0) - (event.touches[1]?.clientY ?? 0),
+        ),
+        range,
+        anchorPrice,
+      };
+    };
+    const onPricePinchMove = (event: TouchEvent) => {
+      const start = pricePinchStart;
+      if (!start || event.touches.length !== 2) return;
+
+      const verticalSpan = Math.abs(
+        (event.touches[0]?.clientY ?? 0) - (event.touches[1]?.clientY ?? 0),
+      );
+      const delta = verticalSpan - start.verticalSpan;
+      if (Math.abs(delta) < 8) return;
+
+      event.preventDefault();
+
+      // The 40px softness avoids extreme scaling when the two fingers start
+      // close together, and the limits keep the range usable on a small screen.
+      const factor = Math.max(
+        0.2,
+        Math.min(5, (verticalSpan + 40) / (start.verticalSpan + 40)),
+      );
+      const from = start.anchorPrice - (start.anchorPrice - start.range.from) / factor;
+      const to = start.anchorPrice + (start.range.to - start.anchorPrice) / factor;
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return;
+
+      const priceScale = chart.priceScale("right");
+      priceScale.setAutoScale(false);
+      priceScale.setVisibleRange({ from, to });
+      pump();
+    };
+    const onPricePinchEnd = (event: TouchEvent) => {
+      if (event.touches.length < 2) pricePinchStart = null;
+    };
+
+    root.addEventListener("touchstart", onPricePinchStart, { capture: true, passive: true });
+    root.addEventListener("touchmove", onPricePinchMove, { capture: true, passive: false });
+    root.addEventListener("touchend", onPricePinchEnd, { capture: true, passive: true });
+    root.addEventListener("touchcancel", onPricePinchEnd, { capture: true, passive: true });
     pump();
 
     return () => {
       disposed = true;
       if (raf) cancelAnimationFrame(raf);
+      root.removeEventListener("touchstart", onPricePinchStart, true);
+      root.removeEventListener("touchmove", onPricePinchMove, true);
+      root.removeEventListener("touchend", onPricePinchEnd, true);
+      root.removeEventListener("touchcancel", onPricePinchEnd, true);
       for (const e of evts) el.removeEventListener(e, pump);
       ro.disconnect();
       chart.remove();
