@@ -77,7 +77,7 @@ function Workspace() {
     settings.lookbackCandles,
   );
 
-  const advance = useAdvance(session, session?.timeframe ?? settings.defaultTimeframe, (t) => store.patchActive({ currentTime: t }));
+  const advance = useAdvance(session, viewTf, (t) => store.patchActive({ currentTime: t }));
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [newsOpen, setNewsOpen] = useState(false);
