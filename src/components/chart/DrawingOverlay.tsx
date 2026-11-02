@@ -277,6 +277,7 @@ export function DrawingOverlay(props: Props) {
         <SessionBands
           coords={coords}
           candles={props.candles}
+          replayTime={props.replayTime}
           timezone={props.timezone}
           sessions={props.sessions}
           showSessions={props.showSessions}
@@ -522,6 +523,7 @@ function Tag({
 function SessionBands({
   coords,
   candles,
+  replayTime,
   timezone,
   sessions,
   showSessions,
@@ -529,6 +531,7 @@ function SessionBands({
 }: {
   coords: CoordApi;
   candles: Candle[];
+  replayTime: number;
   timezone: string;
   sessions: SessionWindows;
   showSessions: boolean;
@@ -547,8 +550,8 @@ function SessionBands({
 
   const { visibleFrom, visibleTo, width } = coords;
   const lastRevealed = candles.length
-    ? candles[candles.length - 1]!.time + coords.barSeconds
-    : visibleTo;
+    ? Math.min(candles[candles.length - 1]!.time + coords.barSeconds, replayTime)
+    : replayTime;
 
   const parseHHMM = (value: string) => {
     const [hour, minute] = value.split(":").map(Number);
