@@ -308,6 +308,7 @@ export function RecordResultSheet({
                 ...trade,
                 status: "closed",
                 closedAt: session.currentTime,
+                resolvedAt: session.currentTime,
                 result,
                 exitPrice,
                 resultR,

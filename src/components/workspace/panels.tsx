@@ -480,8 +480,13 @@ export function TradePanel({
           className="touch-btn text-sm font-semibold"
           style={{ backgroundColor: "var(--primary)", color: "var(--primary-foreground)" }}
           onClick={onRecord}
+          disabled={trade.status !== "active"}
         >
-          Record result
+          {trade.status === "active"
+            ? "Record result"
+            : trade.status === "planned"
+              ? "Waiting for entry"
+              : "Outcome recorded"}
         </button>
       </div>
     </div>

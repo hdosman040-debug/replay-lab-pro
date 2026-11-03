@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { advanceCandles, canDelta, loadReplayDelta, loadReplayView, observeTrade } from "./engine";
+import {
+  advanceCandles,
+  canDelta,
+  findActivation,
+  loadReplayDelta,
+  loadReplayView,
+  observeTrade,
+} from "./engine";
 import { mockMarketDataProvider } from "@/lib/market/mockProvider";
 import type { MarketDataProvider } from "@/lib/market/provider";
 import { floorToTf, TF_SECONDS, TIMEFRAMES, type Candle, type Timeframe } from "@/lib/market/types";
@@ -137,6 +144,20 @@ describe("replay stepping", () => {
     }
   });
 
+  it("normalizes invalid step counts safely", async () => {
+    const one = await advanceCandles(mockMarketDataProvider, SYM, "M5", T0, 1);
+    const fractional = await advanceCandles(mockMarketDataProvider, SYM, "M5", T0, 1.9);
+    expect(fractional).toBe(one);
+
+    expect(
+      await advanceCandles(mockMarketDataProvider, SYM, "M5", T0, Number.NaN),
+    ).toBe(T0);
+
+    expect(
+      await advanceCandles(mockMarketDataProvider, SYM, "M5", T0, Number.POSITIVE_INFINITY),
+    ).toBe(T0);
+  });
+
   it("+10 costs a single provider round-trip", async () => {
     const { p, state } = spy(mockMarketDataProvider);
     await advanceCandles(p, SYM, "M5", T0, 10);
@@ -225,6 +246,64 @@ describe("delta loading", () => {
     const v = await loadReplayView(mockMarketDataProvider, SYM, "M5", T0, 50);
     expect(canDelta(v, SYM, "M5", T0 - 3600)).toBe(false);
     expect(canDelta(v, SYM, "M15", T0 + 3600)).toBe(false);
+  });
+});
+
+describe("trade activation causality", () => {
+  it("does not report an activation before the M1 candle closes", async () => {
+    const candle: Candle = {
+      time: T0,
+      open: 100,
+      high: 105,
+      low: 95,
+      close: 102,
+      volume: 1,
+    };
+
+    const fake: MarketDataProvider = {
+      id: "fake",
+      getCandles: async () => [candle],
+      getBounds: async () => ({ earliest: T0, latest: T0 }),
+      listDatasets: async () => [],
+    };
+
+    const beforeClose = await findActivation(
+      fake,
+      SYM,
+      { entry: 100 },
+      T0,
+      T0 + 59,
+    );
+
+    expect(beforeClose).toBeNull();
+  });
+
+  it("timestamps activation at the completed M1 candle boundary", async () => {
+    const candle: Candle = {
+      time: T0,
+      open: 100,
+      high: 105,
+      low: 95,
+      close: 102,
+      volume: 1,
+    };
+
+    const fake: MarketDataProvider = {
+      id: "fake",
+      getCandles: async () => [candle],
+      getBounds: async () => ({ earliest: T0, latest: T0 }),
+      listDatasets: async () => [],
+    };
+
+    const activation = await findActivation(
+      fake,
+      SYM,
+      { entry: 100 },
+      T0,
+      T0 + 60,
+    );
+
+    expect(activation).toBe(T0 + 60);
   });
 });
 

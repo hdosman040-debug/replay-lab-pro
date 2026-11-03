@@ -213,7 +213,9 @@ export async function advanceCandles(
   horizon: number,
   n: number,
 ): Promise<number> {
-  if (n <= 0) return horizon;
+  if (!Number.isFinite(n)) return horizon;
+  const stepCount = Math.floor(n);
+  if (stepCount <= 0) return horizon;
 
   const tfs = TF_SECONDS[tf];
   const bucket = floorToTf(horizon, tf);
@@ -234,7 +236,7 @@ export async function advanceCandles(
 
   while (true) {
     const to = Math.min(
-      bucket + n * tfs + searchSpan,
+      bucket + stepCount * tfs + searchSpan,
       maxHorizon + tfs,
     );
 
@@ -246,7 +248,7 @@ export async function advanceCandles(
     });
 
     if (ahead.length > 0) {
-      const target = ahead[Math.min(n - 1, ahead.length - 1)]!;
+      const target = ahead[Math.min(stepCount - 1, ahead.length - 1)]!;
       return Math.min(target.time + tfs, maxHorizon);
     }
 
@@ -315,7 +317,8 @@ export async function observeTrade(
 /**
  * Has the manually planned entry been reached by the replay clock?
  * Uses only M1 candles closed before `horizon`; returns the activation time or null.
- * The trader defines the level — this only reports when price actually traded there.
+ * The trader defines the level — this reports when the completed M1 candle
+ * makes that touch observable to the replay.
  */
 export async function findActivation(
   provider: MarketDataProvider,
@@ -328,7 +331,10 @@ export async function findActivation(
   const m1 = await provider.getCandles({ symbol, timeframe: "M1", from, to: horizon });
   for (const c of m1) {
     if (c.time + M1S > horizon) break;
-    if (c.low <= trade.entry && c.high >= trade.entry) return c.time;
+    if (c.low <= trade.entry && c.high >= trade.entry) {
+      // The touch is not observable until this M1 candle has closed.
+      return c.time + M1S;
+    }
   }
   return null;
 }

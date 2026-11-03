@@ -30,8 +30,17 @@ export function useTradeActivation(
 
           if (cancelled || activatedAt === null) return;
 
-          const latest = useSessionStore.getState().sessions[session.id]?.trade;
-          if (!latest || latest.id !== trade.id || latest.status !== "planned") return;
+          const latestSession = useSessionStore.getState().sessions[session.id];
+          const latest = latestSession?.trade;
+          if (
+            !latestSession ||
+            latestSession.currentTime !== session.currentTime ||
+            !latest ||
+            latest.id !== trade.id ||
+            latest.status !== "planned"
+          ) {
+            return;
+          }
 
           useSessionStore.getState().setTrade({
             ...latest,

@@ -179,3 +179,19 @@ describe("result label integrity", () => {
     ).toBe(false);
   });
 });
+
+
+describe("manual closure integrity", () => {
+  it("rejects manually rewriting an already closed trade", () => {
+    const closedTrade = {
+      direction: "long" as const,
+      entry: 40000,
+      stopLoss: 39900,
+      takeProfit: 40200,
+      status: "closed" as const,
+      activatedAt: 1,
+    };
+
+    expect(canRecordTradeOutcome(closedTrade, 40200, 2, "win")).toBe(false);
+  });
+});

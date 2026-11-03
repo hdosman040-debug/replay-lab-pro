@@ -18,6 +18,15 @@ export interface Drawing {
   createdAtReplayTime: number;
 }
 
+
+/** Drawings created after the replay clock are hidden to preserve causal review. */
+export function visibleDrawingsAt<T extends Pick<Drawing, "createdAtReplayTime">>(
+  drawings: T[],
+  replayTime: number,
+): T[] {
+  return drawings.filter((drawing) => drawing.createdAtReplayTime <= replayTime);
+}
+
 export type ToolGroup = "liquidity" | "structure" | "poi" | "pa" | "general";
 
 export interface ToolDef {

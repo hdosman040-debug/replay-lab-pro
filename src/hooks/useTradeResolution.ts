@@ -31,9 +31,12 @@ export function useTradeResolution(
 
           if (cancelled || !observation.hit || observation.hitAt === null) return;
 
-          const latest = useSessionStore.getState().sessions[session.id]?.trade;
+          const latestSession = useSessionStore.getState().sessions[session.id];
+          const latest = latestSession?.trade;
 
           if (
+            !latestSession ||
+            latestSession.currentTime !== session.currentTime ||
             !latest ||
             latest.id !== trade.id ||
             latest.status !== "active" ||
@@ -56,6 +59,7 @@ export function useTradeResolution(
             ...latest,
             status: "closed",
             closedAt: observation.hitAt,
+            resolvedAt: session.currentTime,
             result,
             exitPrice,
             resultR,

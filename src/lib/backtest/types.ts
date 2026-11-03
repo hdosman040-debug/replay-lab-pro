@@ -80,6 +80,8 @@ export interface TradePlan {
   plannedAt: number; // replay time
   activatedAt?: number;
   closedAt?: number;
+  /** replay horizon when the closure became observable */
+  resolvedAt?: number;
   /** what the replay observed after activation (informational only) */
   observed?: { hit: "tp" | "sl"; at: number } | null;
   result?: TradeResult;
@@ -137,7 +139,7 @@ export function canRecordTradeOutcome(
           : false;
 
   const tradeWasActivated =
-    trade.status !== "planned" &&
+    trade.status === "active" &&
     typeof trade.activatedAt === "number" &&
     Number.isFinite(trade.activatedAt);
 
@@ -272,11 +274,17 @@ export interface JournalRecord {
  * jumps backward to time `t`.
  */
 export function rewindTrade(trade: TradePlan | null, t: number): TradePlan | null {
-  if (!trade || trade.status === "planned") return trade;
+  if (!trade) return null;
 
-  if (trade.closedAt !== undefined && trade.closedAt > t) {
+  // The trade did not exist yet at this replay horizon.
+  if (trade.plannedAt > t) return null;
+
+  if (trade.status === "planned") return trade;
+
+  const closureVisibleAt = trade.resolvedAt ?? trade.closedAt;
+  if (closureVisibleAt !== undefined && closureVisibleAt > t) {
     const {
-      closedAt, observed, result, exitPrice, resultR,
+      closedAt, resolvedAt, observed, result, exitPrice, resultR,
       maxFavorableR, maxAdverseR, afterSnapshotId, ...rest
     } = trade;
     if (rest.activatedAt !== undefined && rest.activatedAt <= t) {

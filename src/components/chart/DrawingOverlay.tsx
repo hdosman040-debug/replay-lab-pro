@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 
 import { useChartCtx, type CoordApi } from "./chartContext";
-import { isTwoPoint, type Drawing, type PricePoint, type ToolDef } from "@/lib/drawings/types";
+import { isTwoPoint, type Drawing, type PricePoint, type ToolDef, visibleDrawingsAt } from "@/lib/drawings/types";
 import { drawingPointsChanged, ownsGesture } from "@/lib/drawings/gesture";
 import type { Candle } from "@/lib/market/types";
 import { hhmmToMinutes, SESSION_LABEL, type SessionName, type SessionWindows, zonedParts, zonedToUtc } from "@/lib/time/ny";
@@ -235,6 +235,7 @@ export function DrawingOverlay(props: Props) {
 
   if (!coords) return null;
   const { width, height } = coords;
+  const visibleDrawings = visibleDrawingsAt(props.drawings, props.replayTime);
   const toolActive = !!props.tool;
 
   const draft: Drawing | null =
@@ -284,7 +285,7 @@ export function DrawingOverlay(props: Props) {
           showTradingWindow={props.showTradingWindow}
         />
       )}
-      {props.drawings.map((d) => {
+      {visibleDrawings.map((d) => {
         if (dragDrawing?.id === d.id) return null;
 
         return (

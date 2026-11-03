@@ -1,4 +1,4 @@
-import { OWNER_ID } from "@/lib/owner";
+import { getOwnerId } from "@/lib/owner";
 import { supabase } from "@/lib/supabaseClient";
 
 import * as local from "./snapshotStoreLocal";
@@ -9,17 +9,19 @@ export type { StoredSnapshot } from "./snapshotStoreLocal";
 const BUCKET = "chart-snapshots";
 const TABLE = "chart_snapshots";
 
-const filePath = (id: string) => `${OWNER_ID}/${id}`;
+const filePath = (ownerId: string, id: string) => `${ownerId}/${id}`;
 
 async function uploadToCloud(s: StoredSnapshot): Promise<void> {
+  const ownerId = await getOwnerId();
+
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
-    .upload(filePath(s.id), s.blob, { upsert: true, contentType: s.blob.type || "image/png" });
+    .upload(filePath(ownerId, s.id), s.blob, { upsert: true, contentType: s.blob.type || "image/png" });
   if (uploadError) throw uploadError;
 
   const { error } = await supabase.from(TABLE).upsert({
     id: s.id,
-    user_id: OWNER_ID,
+    user_id: ownerId,
     session_id: s.sessionId,
     kind: s.kind,
     journal_record_id: s.journalRecordId ?? null,
@@ -79,7 +81,7 @@ export async function getSnapshot(id: string): Promise<StoredSnapshot | null> {
 
 export async function deleteSnapshot(id: string): Promise<void> {
   const { data: row } = await supabase.from(TABLE).select("user_id").eq("id", id).maybeSingle();
-  const paths = [filePath(id), id];
+  const paths = [id];
   if (row?.user_id) paths.push(`${row.user_id as string}/${id}`);
 
   const { error: removeError } = await supabase.storage.from(BUCKET).remove(paths);
