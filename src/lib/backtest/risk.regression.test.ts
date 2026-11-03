@@ -65,6 +65,9 @@ describe("trade recording eligibility", () => {
     direction: "long" as const,
     entry: 40000,
     stopLoss: 39900,
+    takeProfit: 40200,
+    status: "active" as const,
+    activatedAt: 1,
   };
 
   it("accepts a valid closed trade outcome", () => {
@@ -87,5 +90,92 @@ describe("trade recording eligibility", () => {
 
   it("accepts a valid breakeven result", () => {
     expect(canRecordTradeOutcome(validTrade, 40000, 0, "breakeven")).toBe(true);
+  });
+});
+
+describe("result label integrity", () => {
+  const validTrade = {
+    direction: "long" as const,
+    entry: 40000,
+    stopLoss: 39900,
+    takeProfit: 40200,
+    status: "active" as const,
+    activatedAt: 1,
+  };
+
+  it("rejects a win with negative R", () => {
+    expect(canRecordTradeOutcome(validTrade, 39900, -1, "win")).toBe(false);
+  });
+
+  it("rejects a loss with positive R", () => {
+    expect(canRecordTradeOutcome(validTrade, 40200, 2, "loss")).toBe(false);
+  });
+
+  it("rejects breakeven with nonzero R", () => {
+    expect(canRecordTradeOutcome(validTrade, 40200, 2, "breakeven")).toBe(false);
+  });
+
+  it("accepts matching result labels and R values", () => {
+    expect(canRecordTradeOutcome(validTrade, 40200, 2, "win")).toBe(true);
+    expect(canRecordTradeOutcome(validTrade, 39900, -1, "loss")).toBe(true);
+    expect(canRecordTradeOutcome(validTrade, 40000, 0, "breakeven")).toBe(true);
+  });
+
+  it("rejects an unactivated planned trade", () => {
+    const plannedTrade = {
+      direction: "long" as const,
+      entry: 40000,
+      stopLoss: 39900,
+      takeProfit: 40200,
+      status: "planned" as const,
+    };
+
+    expect(canRecordTradeOutcome(plannedTrade, 40200, 2, "win")).toBe(false);
+  });
+
+  it("rejects an active trade without an activation timestamp", () => {
+    const unactivatedTrade = {
+      direction: "long" as const,
+      entry: 40000,
+      stopLoss: 39900,
+      takeProfit: 40200,
+      status: "active" as const,
+    };
+
+    expect(canRecordTradeOutcome(unactivatedTrade, 40200, 2, "win")).toBe(false);
+  });
+
+  it("rejects invalid directional trade geometry", () => {
+    expect(
+      canRecordTradeOutcome(
+        { ...validTrade, stopLoss: 40100 },
+        40200,
+        2,
+        "win",
+      ),
+    ).toBe(false);
+
+    expect(
+      canRecordTradeOutcome(
+        { ...validTrade, takeProfit: 39800 },
+        39800,
+        -2,
+        "loss",
+      ),
+    ).toBe(false);
+
+    expect(
+      canRecordTradeOutcome(
+        {
+          ...validTrade,
+          direction: "short" as const,
+          stopLoss: 39900,
+          takeProfit: 40200,
+        },
+        39800,
+        2,
+        "win",
+      ),
+    ).toBe(false);
   });
 });

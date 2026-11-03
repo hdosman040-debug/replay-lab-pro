@@ -118,15 +118,44 @@ export function isValidTradeOutcome(
 }
 
 export function canRecordTradeOutcome(
-  trade: Pick<TradePlan, "entry" | "stopLoss">,
+  trade: Pick<
+    TradePlan,
+    "entry" | "stopLoss" | "takeProfit" | "direction" | "status"
+  > &
+    Partial<Pick<TradePlan, "activatedAt">>,
   exitPrice: number,
   resultR: number,
   result: TradeResult | null,
 ): boolean {
+  const resultMatchesR =
+    result === "win"
+      ? resultR > 0
+      : result === "loss"
+        ? resultR < 0
+        : result === "breakeven"
+          ? resultR === 0
+          : false;
+
+  const tradeWasActivated =
+    trade.status !== "planned" &&
+    typeof trade.activatedAt === "number" &&
+    Number.isFinite(trade.activatedAt);
+
+  const directionalLevelsValid =
+    Number.isFinite(trade.entry) &&
+    Number.isFinite(trade.stopLoss) &&
+    Number.isFinite(trade.takeProfit) &&
+    (trade.direction === "long"
+      ? trade.stopLoss < trade.entry && trade.takeProfit > trade.entry
+      : trade.stopLoss > trade.entry && trade.takeProfit < trade.entry);
+
   return (
     result !== null &&
+    tradeWasActivated &&
+    directionalLevelsValid &&
     isValidTradeOutcome(trade, exitPrice) &&
-    Number.isFinite(resultR)
+    Number.isFinite(resultR) &&
+    resultMatchesR
   );
 }
 
