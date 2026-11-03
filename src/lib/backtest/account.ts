@@ -194,7 +194,7 @@ export function computePropaniumOneStepAccount(
   let dayStartBalance = startingBalance;
   let dailyDrawdownFloor = dayStartBalance * (1 - dailyDrawdownPercent / 100);
   let dailyLossLimit = dayStartBalance * (dailyDrawdownPercent / 100);
-  let dailyLowEquity = dayStartBalance;
+  let dailyLowEquity: number = dayStartBalance;
   let state: ChallengeState = startedAt === null ? "not_started" : "active";
   let breachReason: PropaniumChallengeAccount["breachReason"] = null;
   let tradesProcessed = 0;
