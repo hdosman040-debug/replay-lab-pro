@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-import { parseCalendarCsv, saveNewsEvents, type NewsEvent } from "./calendar";
+import { loadNewsEvents, mergeNewsEvents, parseCalendarCsv, saveNewsEvents, type NewsEvent } from "./calendar";
 
 const SUPABASE_URL = import.meta.env["VITE_SUPABASE_URL"] as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env["VITE_SUPABASE_ANON_KEY"] as string | undefined;
@@ -22,6 +22,7 @@ export async function refreshNewsFromSupabase(): Promise<NewsEvent[]> {
   if (events.length === 0) {
     throw new Error("News file is empty");
   }
-  saveNewsEvents(events);
-  return events;
+  const merged = mergeNewsEvents(loadNewsEvents(), events);
+  saveNewsEvents(merged);
+  return merged;
 }

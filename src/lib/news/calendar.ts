@@ -57,7 +57,7 @@ function parseCsvRows(text: string): string[][] {
 /** Parses the replay_lab_economic_calendar CSV and keeps High Impact rows only. */
 export function parseCalendarCsv(text: string): NewsEvent[] {
   const rows = parseCsvRows(text.replace(/^\uFEFF/, ""));
-  const header = rows.shift() ?? [];
+  const header = (rows.shift() ?? []).map((value) => value.trim());
   const col = (name: string) => header.indexOf(name);
   const iDate = col("date_ny");
   const iUtc = col("datetime_utc");
@@ -73,14 +73,14 @@ export function parseCalendarCsv(text: string): NewsEvent[] {
 
   const out: NewsEvent[] = [];
   for (const r of rows) {
-    const cell = (i: number) => (i >= 0 && r[i] ? r[i]! : null);
+    const cell = (i: number) => (i >= 0 && r[i]?.trim() ? r[i]!.trim() : null);
     const iso = cell(iUtc);
     const utc = iso ? Date.parse(iso) / 1000 : NaN;
     const e: NewsEvent = {
       utc: Number.isFinite(utc) ? utc : null,
-      dateNy: r[iDate] ?? "",
-      event: r[iEvent] ?? "",
-      impact: r[iImpact] ?? "",
+      dateNy: cell(iDate) ?? "",
+      event: cell(iEvent) ?? "",
+      impact: cell(iImpact) ?? "",
       actual: cell(iActual),
       forecast: cell(iForecast),
       previous: cell(iPrevious),
@@ -88,6 +88,24 @@ export function parseCalendarCsv(text: string): NewsEvent[] {
     if (e.impact === HIGH_IMPACT) out.push(e);
   }
   return out.sort((a, b) => a.dateNy.localeCompare(b.dateNy) || (a.utc ?? 0) - (b.utc ?? 0));
+}
+
+export function mergeNewsEvents(...groups: NewsEvent[][]): NewsEvent[] {
+  const byKey = new Map<string, NewsEvent>();
+
+  for (const events of groups) {
+    for (const event of events) {
+      const key = `${event.dateNy}|${event.utc ?? "all-day"}|${event.event}|${event.impact}`;
+      byKey.set(key, event);
+    }
+  }
+
+  return [...byKey.values()].sort(
+    (a, b) =>
+      a.dateNy.localeCompare(b.dateNy) ||
+      (a.utc ?? 0) - (b.utc ?? 0) ||
+      a.event.localeCompare(b.event),
+  );
 }
 
 export function loadNewsEvents(): NewsEvent[] {

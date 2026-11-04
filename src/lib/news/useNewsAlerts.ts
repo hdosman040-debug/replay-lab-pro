@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ALERT_LEAD_SECONDS, loadNewsEvents, type NewsEvent } from "./calendar";
+import { ALERT_LEAD_SECONDS, loadNewsEvents, mergeNewsEvents, type NewsEvent } from "./calendar";
 import { refreshNewsFromSupabase } from "./remoteNews";
 
 /**
@@ -24,7 +24,9 @@ export function useNewsAlerts(sessionId: string | null, currentTime: number | nu
     let cancelled = false;
     refreshNewsFromSupabase()
       .then((ev) => {
-        if (!cancelled) setEvents(ev);
+        if (!cancelled) {
+          setEvents((current) => mergeNewsEvents(current, ev));
+        }
       })
       .catch((err) => {
         console.warn("[News] Supabase unavailable, using saved copy:", err);

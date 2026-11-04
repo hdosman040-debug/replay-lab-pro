@@ -1,6 +1,6 @@
 import { useMemo, useState, type ChangeEvent } from "react";
 
-import { ALERT_LEAD_SECONDS, parseCalendarCsv, saveNewsEvents, type NewsEvent } from "@/lib/news/calendar";
+import { ALERT_LEAD_SECONDS, loadNewsEvents, mergeNewsEvents, parseCalendarCsv, saveNewsEvents, type NewsEvent } from "@/lib/news/calendar";
 import { fmtDate, fmtDateISO, fmtTime } from "@/lib/time/ny";
 
 export function NewsPanel({
@@ -29,7 +29,7 @@ export function NewsPanel({
     try {
       const high = parseCalendarCsv(await file.text());
       if (high.length === 0) throw new Error("No High Impact events found in this file.");
-      saveNewsEvents(high);
+      saveNewsEvents(mergeNewsEvents(loadNewsEvents(), high));
       setError(null);
       onLoaded();
     } catch (err) {

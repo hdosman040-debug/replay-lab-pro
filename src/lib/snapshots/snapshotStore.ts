@@ -41,7 +41,13 @@ export async function saveSnapshot(snapshot: StoredSnapshot): Promise<void> {
 
 export async function getSnapshot(id: string): Promise<StoredSnapshot | null> {
   try {
-    const { data: row, error } = await supabase.from(TABLE).select("*").eq("id", id).maybeSingle();
+    const ownerId = await getOwnerId();
+    const { data: row, error } = await supabase
+      .from(TABLE)
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", ownerId)
+      .maybeSingle();
     if (error) throw error;
 
     if (row) {
@@ -80,26 +86,55 @@ export async function getSnapshot(id: string): Promise<StoredSnapshot | null> {
 }
 
 export async function deleteSnapshot(id: string): Promise<void> {
-  const { data: row } = await supabase.from(TABLE).select("user_id").eq("id", id).maybeSingle();
-  const paths = [id];
-  if (row?.user_id) paths.push(`${row.user_id as string}/${id}`);
+  try {
+    const ownerId = await getOwnerId();
+    const { data: row } = await supabase
+      .from(TABLE)
+      .select("user_id")
+      .eq("id", id)
+      .eq("user_id", ownerId)
+      .maybeSingle();
 
-  const { error: removeError } = await supabase.storage.from(BUCKET).remove(paths);
-  if (removeError) console.error("[snapshots] file delete failed:", removeError);
+    const paths = [id];
+    if (row?.user_id === ownerId) paths.push(`${ownerId}/${id}`);
 
-  const { error } = await supabase.from(TABLE).delete().eq("id", id);
-  if (error) console.error("[snapshots] row delete failed:", error);
+    const { error: removeError } = await supabase.storage
+      .from(BUCKET)
+      .remove(paths);
+    if (removeError) {
+      console.error("[snapshots] file delete failed:", removeError);
+    }
+
+    const { error } = await supabase
+      .from(TABLE)
+      .delete()
+      .eq("id", id)
+      .eq("user_id", ownerId);
+    if (error) {
+      console.error("[snapshots] row delete failed:", error);
+    }
+  } catch (error) {
+    console.error("[snapshots] cloud delete skipped:", error);
+  }
 
   await local.deleteSnapshot(id).catch(() => undefined);
 }
 
 export async function snapshotExists(id: string): Promise<boolean> {
   try {
-    const { data, error } = await supabase.from(TABLE).select("id").eq("id", id).maybeSingle();
+    const ownerId = await getOwnerId();
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("id")
+      .eq("id", id)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+
     if (error) throw error;
     if (data) return true;
   } catch (error) {
     console.error("[snapshots] cloud exists check failed:", error);
   }
+
   return local.snapshotExists(id).catch(() => false);
 }
