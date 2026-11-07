@@ -21,7 +21,7 @@ import { ToolStrip } from "@/components/workspace/ToolStrip";
 import { NewsBanner, NewsPanel } from "@/components/workspace/NewsPanel";
 import { useNewsAlerts } from "@/lib/news/useNewsAlerts";
 import { TradeLevels } from "@/components/workspace/TradeLevels";
-import { isPreTradeChecklistReady, type TradePlan } from "@/lib/backtest/types";
+import type { TradePlan } from "@/lib/backtest/types";
 import { getTool } from "@/lib/drawings/types";
 import { TF_SECONDS, TIMEFRAMES, type Timeframe } from "@/lib/market/types";
 import { SPEEDS } from "@/lib/replay/engine";
@@ -356,14 +356,12 @@ function Workspace() {
                 <WorkflowPanel
                   session={session}
                   onToggle={store.toggleWorkflowStep}
-                  onAnswer={store.setPreTradeAnswer}
                 />
               )}
               {ui.panelTab === "analysis" && <AnalysisPanel analysis={session.analysis} onChange={store.setAnalysis} />}
               {ui.panelTab === "trade" && (
                 <TradePanel
                   trade={session.trade}
-                  canPlan={isPreTradeChecklistReady(session.preTradeChecklist)}
                   lastPrice={lastCandle?.close ?? null}
                   onCreate={(direction) => {
                     const p = lastCandle?.close ?? 0;
