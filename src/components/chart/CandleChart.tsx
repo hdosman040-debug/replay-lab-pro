@@ -7,6 +7,7 @@ import {
   createChart,
   type IChartApi,
   type ISeriesApi,
+  type Logical,
   type MouseEventParams,
   type Time,
   type UTCTimestamp,
@@ -25,6 +26,7 @@ import {
 import { flushSync } from "react-dom";
 
 import { ChartContext, type CoordApi } from "./chartContext";
+import { logicalToX } from "./coordinates";
 import type { Candle } from "@/lib/market/types";
 import { fmtDate, fmtTime, tzOffsetSeconds } from "@/lib/time/ny";
 
@@ -652,10 +654,10 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
       barSeconds,
       visibleFrom: range ? logicalToTime(range.from) : 0,
       visibleTo: range ? logicalToTime(range.to) : 0,
-      timeToX: (t) => {
-        const x = ts.logicalToCoordinate(timeToLogical(t) as never);
-        return x === null ? null : (x as number);
-      },
+      timeToX: (t) => logicalToX(
+        timeToLogical(t),
+        (logical) => ts.logicalToCoordinate(logical as Logical),
+      ),
       priceToY: (p) => {
         const y = series.priceToCoordinate(p);
         return y === null ? null : (y as number);
