@@ -57,9 +57,8 @@ export function useAfterTradeSnapshot(
             return;
           }
 
-          useSessionStore.getState().setTrade({
-            ...latest,
-            afterSnapshotId: snapshotId,
+          useSessionStore.getState().patchSession(session.id, {
+            trade: { ...latest, afterSnapshotId: snapshotId },
           });
         } catch (error) {
           console.error("[After Snapshot] FAILED:", error);

@@ -127,11 +127,12 @@ function Workspace() {
 
   useReplayPlayback(session, ui.playing, advance);
 
-  useTradeActivation(session);
+  // Trade mutations must wait for both the session and journal cloud reads.
+  useTradeActivation(ready ? session : undefined);
 
-  useTradeResolution(session);
+  useTradeResolution(ready ? session : undefined);
 
-  useAfterTradeSnapshot(session, chartRef, captureSnapshotClean);
+  useAfterTradeSnapshot(ready ? session : undefined, chartRef, captureSnapshotClean);
 
   useEffect(() => {
     if (session && !ui.viewTimeframe) ui.setViewTimeframe(session.timeframe);
@@ -176,7 +177,7 @@ function Workspace() {
             </button>
           )}
         </div>
-        <Sheets />
+        {renderSheets()}
       </AppShell>
     );
   }
@@ -382,7 +383,10 @@ function Workspace() {
                     store.setTrade(null);
                     store.resetPreTradeChecklist();
                   }}
-                  onRecord={() => ui.setSheet("recordResult")}
+                  onRecord={() => {
+                    ui.setPlaying(false);
+                    ui.setSheet("recordResult");
+                  }}
                   onNoTrade={() => ui.setSheet("noTrade")}
                   onCaptureBefore={async () => {
                     if (!session?.trade || session.trade.beforeSnapshotId) return;
@@ -403,11 +407,10 @@ function Workspace() {
                       const currentTrade =
                         useSessionStore.getState().sessions[session.id]?.trade;
 
-                      if (!currentTrade || currentTrade.beforeSnapshotId) return;
+                      if (!currentTrade || currentTrade.id !== session.trade.id || currentTrade.beforeSnapshotId) return;
 
-                      store.setTrade({
-                        ...currentTrade,
-                        beforeSnapshotId: snapshotId,
+                      store.patchSession(session.id, {
+                        trade: { ...currentTrade, beforeSnapshotId: snapshotId },
                       });
                     } catch (error) {
                       console.error("Failed to capture before-trade chart snapshot:", error);
@@ -420,11 +423,11 @@ function Workspace() {
         </div>
         </div>
       </div>
-      <Sheets />
+      {renderSheets()}
     </AppShell>
   );
 
-  function Sheets() {
+  function renderSheets() {
     return (
       <>
         <NewSessionSheet
@@ -472,18 +475,21 @@ function Workspace() {
                 ui.setSheet(null);
               }}
             />
-            <RecordResultSheet
-              open={ui.sheet === "recordResult"}
-              session={session}
-              sessions={settings.sessions}
-              tz={tz}
-              onClose={() => ui.setSheet(null)}
-              onSave={(record) => {
-                addRecord(record);
-                store.setTrade(record.trade);
-                ui.setSheet(null);
-              }}
-            />
+            {ui.sheet === "recordResult" && (
+              <RecordResultSheet
+                key={`${session.id}:${session.trade?.id}:${session.trade?.status}`}
+                open
+                session={session}
+                sessions={settings.sessions}
+                tz={tz}
+                onClose={() => ui.setSheet(null)}
+                onSave={(record) => {
+                  addRecord(record);
+                  store.setTrade(record.trade);
+                  ui.setSheet(null);
+                }}
+              />
+            )}
             <NoTradeSheet
               open={ui.sheet === "noTrade"}
               session={session}

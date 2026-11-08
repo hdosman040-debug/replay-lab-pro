@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { supabaseStorage } from "./supabaseStorage";
+import { useJournalStore } from "./journalStore";
+import { useSettingsStore } from "./settingsStore";
 
 import { emptyAnalysis, emptyPreTradeChecklist, rewindTrade, type Analysis, type PreTradeAnswer, type PreTradeCheckId, type ReplaySession, type TradePlan, type WorkflowStepId } from "@/lib/backtest/types";
 import type { Drawing } from "@/lib/drawings/types";
@@ -93,17 +95,22 @@ export const useSessionStore = create<SessionState>()(
             delete sessions[id];
             return { sessions, activeSessionId: st.activeSessionId === id ? null : st.activeSessionId };
           }),
-        patchSession: (id, patch) =>
-          set((st) => {
-            const s = st.sessions[id];
-            if (!s) return st;
-            const next = { ...s, ...patch, updatedAt: Date.now() };
-            // Moving the clock backward must undo trade state from the "future".
-            if (patch.currentTime !== undefined && patch.currentTime < s.currentTime && !("trade" in patch)) {
-              next.trade = rewindTrade(s.trade, patch.currentTime);
-            }
-            return { sessions: { ...st.sessions, [id]: next } };
-          }),
+        patchSession: (id, patch) => {
+          const s = get().sessions[id];
+          if (!s) return;
+          const next = { ...s, ...patch, updatedAt: Date.now() };
+          // Moving the clock backward must undo trade state from the "future".
+          if (patch.currentTime !== undefined && patch.currentTime < s.currentTime && !("trade" in patch)) {
+            next.trade = rewindTrade(s.trade, patch.currentTime);
+          }
+          if ("trade" in patch && next.trade?.status === "closed") {
+            const journalRecordId = useJournalStore.getState().recordClosedTrade(
+              next, useSettingsStore.getState().settings.sessions,
+            );
+            if (journalRecordId) next.trade = { ...next.trade, journalRecordId };
+          }
+          set((st) => ({ sessions: { ...st.sessions, [id]: next } }));
+        },
         patchActive: (patch) => {
           const s = active();
           if (s) get().patchSession(s.id, patch);
@@ -182,4 +189,14 @@ export const useSessionStore = create<SessionState>()(
 
 export function useActiveSession(): ReplaySession | undefined {
   return useSessionStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] : undefined));
+}
+
+/** Run after both authenticated session and journal stores have hydrated. */
+export function recoverClosedTrades(): void {
+  const store = useSessionStore.getState();
+  for (const session of Object.values(store.sessions)) {
+    if (session.trade?.status === "closed" && !session.trade.journalRecordId) {
+      store.patchSession(session.id, { trade: session.trade });
+    }
+  }
 }

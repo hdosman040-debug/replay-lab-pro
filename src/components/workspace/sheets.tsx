@@ -15,6 +15,8 @@ import {
 import { TIMEFRAMES, type Timeframe } from "@/lib/market/types";
 import { SPEEDS } from "@/lib/replay/engine";
 import { uid } from "@/lib/store/sessionStore";
+import { useJournalStore } from "@/lib/store/journalStore";
+import { closedTradeRecord } from "@/lib/backtest/closedTradeRecord";
 import { fmtDateISO, fmtDateTime, fmtTimeISO, sessionAt, SESSION_LABEL, zonedToUtc, type SessionWindows } from "@/lib/time/ny";
 
 function parseDateTime(date: string, time: string, tz: string): number | null {
@@ -232,11 +234,18 @@ export function RecordResultSheet({
   onSave: (record: JournalRecord) => void;
 }) {
   const trade = session.trade;
-  const [result, setResult] = useState<TradeResult | null>(null);
-  const [exit, setExit] = useState<string>(trade ? String(trade.takeProfit) : "");
-  const [mistakes, setMistakes] = useState("");
-  const [notes, setNotes] = useState("");
+  const existing = useJournalStore((state) => state.records.find((record) =>
+    record.kind === "trade" && record.sessionId === session.id && record.trade?.id === trade?.id,
+  ));
+  const [result, setResult] = useState<TradeResult | null>(trade?.result ?? null);
+  const [exit, setExit] = useState<string>(trade ? String(trade.exitPrice ?? trade.takeProfit) : "");
+  const [mistakes, setMistakes] = useState(existing?.mistakes ?? "");
+  const [notes, setNotes] = useState(existing?.notes ?? "");
+
   if (!trade) return null;
+
+  const closed = trade.status === "closed";
+  const recordedOutcome = closed ? closedTradeRecord(session, sessions, existing) : null;
 
   const exitPrice = exit.trim() === "" ? NaN : Number(exit);
   const resultR =
@@ -246,7 +255,7 @@ export function RecordResultSheet({
         ? 0
         : resultRAt(trade, exitPrice);
 
-  const canSave = canRecordTradeOutcome(
+  const canSave = closed ? recordedOutcome !== null : canRecordTradeOutcome(
     trade,
     exitPrice,
     resultR,
@@ -261,17 +270,18 @@ export function RecordResultSheet({
   };
 
   return (
-    <Sheet open={open} title="Record outcome" onClose={onClose}>
+    <Sheet open={open} title={closed ? "Review recorded outcome" : "Record outcome"} onClose={onClose}>
       <div className="space-y-3 p-3">
+        {closed && <p className="text-xs text-muted-foreground">This outcome is saved to your journal. Add review notes below.</p>}
         <div className="grid grid-cols-3 gap-2">
           {(["win", "loss", "breakeven"] as TradeResult[]).map((r) => (
-            <button key={r} type="button" className="chip justify-center" data-active={result === r} onClick={() => pick(r)}>
+            <button key={r} type="button" className="chip justify-center" data-active={result === r} disabled={closed} onClick={() => pick(r)}>
               {r === "breakeven" ? "BE" : r === "win" ? "Win" : "Loss"}
             </button>
           ))}
         </div>
         <Field label="Exit price">
-          <input className="panel-input num" type="number" step="0.1" value={exit} onChange={(e) => setExit(e.target.value)} />
+          <input className="panel-input num" type="number" step="0.1" value={exit} disabled={closed} onChange={(e) => setExit(e.target.value)} />
         </Field>
         <div className="grid grid-cols-3 gap-2 rounded-md border border-border bg-surface p-2 text-center">
           <Stat label="R:R planned" value={rrRatio(trade).toFixed(2)} />
@@ -292,14 +302,19 @@ export function RecordResultSheet({
           onClick={() => {
             if (!canSave || result === null) return;
 
+            if (closed) {
+              if (recordedOutcome) onSave({ ...recordedOutcome, mistakes, notes });
+              return;
+            }
+
             onSave({
               id: uid(),
               kind: "trade",
               sessionId: session.id,
               symbol: session.symbol,
               timeframe: session.timeframe,
-              decisionTime: session.currentTime,
-              session: SESSION_LABEL[sessionAt(session.currentTime, sessions)],
+              decisionTime: trade.plannedAt,
+              session: SESSION_LABEL[sessionAt(trade.activatedAt ?? trade.plannedAt, sessions)],
               analysis: session.analysis,
               ...(session.preTradeChecklist
                 ? { preTradeChecklist: session.preTradeChecklist }
@@ -326,7 +341,7 @@ export function RecordResultSheet({
             });
           }}
         >
-          Save to journal
+          {closed ? "Save review" : "Save to journal"}
         </button>
       </div>
     </Sheet>

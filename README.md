@@ -62,6 +62,8 @@ Every journaled trade also runs through a simulated US30 demo account, so you ca
 ### Journal and statistics
 - Records both **trades** and **no-trade decisions** (no trade, setup invalidated, missed setup, did not meet rules, poor conditions, waiting for confirmation, other).
 - Each record keeps the analysis, trade, drawings, mistakes, notes, session, and before/after chart snapshots.
+- Trades that close at SL or TP are saved to the journal automatically. **Review result** adds notes and mistakes while preserving the recorded outcome. Clearing a closed trade from the workspace keeps its journal entry.
+- Valid closed trades still present in older saved sessions are recovered after login. Trades already discarded from both the workspace and journal cannot be reconstructed.
 - **Statistics** cover trades, no-trades, wins, losses, breakeven, win rate, total R, average R, average win/loss, largest win/loss, and win/loss streaks. They also break down by setup type, direction, session, and no-trade reason.
 - Statistics are for self-review only, never signals.
 
@@ -104,7 +106,7 @@ The app uses Supabase email/password authentication. Journal and replay persiste
 
 How syncing behaves:
 
-- **Supabase is the source of truth** for sessions and the journal. A copy is kept in `localStorage` under `cache:<key>` as an offline fallback.
+- **Supabase is the source of truth** for sessions and the journal. Account-scoped local copies are cached. Unacknowledged writes also have an account-scoped pending copy, so a reload before the delayed save can recover them after a successful authenticated cloud read and retry the upload.
 - Saves are debounced by 1.5 seconds, retried every 8 seconds if they fail, and flushed immediately when the tab is hidden.
 - If a key is missing in Supabase but present in the local cache, the cached copy is uploaded.
 - Snapshots upload to Supabase first. If that fails, the image is kept in IndexedDB (`replay-lab-pro.snapshots`) and uploaded the next time it is opened.

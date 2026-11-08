@@ -55,19 +55,21 @@ export function useTradeResolution(
 
           if (!canRecordTradeOutcome(latest, exitPrice, resultR, result)) return;
 
-          useSessionStore.getState().setTrade({
-            ...latest,
-            status: "closed",
-            closedAt: observation.hitAt,
-            resolvedAt: session.currentTime,
-            result,
-            exitPrice,
-            resultR,
-            maxFavorableR: observation.mfeR,
-            maxAdverseR: observation.maeR,
-            observed: {
-              hit: observation.hit,
-              at: observation.hitAt,
+          useSessionStore.getState().patchSession(session.id, {
+            trade: {
+              ...latest,
+              status: "closed",
+              closedAt: observation.hitAt,
+              resolvedAt: session.currentTime,
+              result,
+              exitPrice,
+              resultR,
+              maxFavorableR: observation.mfeR,
+              maxAdverseR: observation.maeR,
+              observed: {
+                hit: observation.hit,
+                at: observation.hitAt,
+              },
             },
           });
         } catch (error) {

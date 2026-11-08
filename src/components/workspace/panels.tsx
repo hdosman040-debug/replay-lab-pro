@@ -346,6 +346,7 @@ export function TradePanel({
         step="0.1"
         className="panel-input num"
         value={trade[k]}
+        disabled={trade.status === "closed"}
         onChange={(e) => onPatch({ [k]: Number(e.target.value) } as Partial<TradePlan>)}
       />
     </Field>
@@ -432,20 +433,20 @@ export function TradePanel({
 
       <div className="grid grid-cols-2 gap-2">
         <button type="button" className="touch-btn border border-border text-sm" onClick={onRemove}>
-          Discard plan
+          {trade.status === "closed" ? "Clear closed trade" : "Discard plan"}
         </button>
         <button
           type="button"
           className="touch-btn text-sm font-semibold"
           style={{ backgroundColor: "var(--primary)", color: "var(--primary-foreground)" }}
           onClick={onRecord}
-          disabled={trade.status !== "active"}
+          disabled={trade.status === "planned"}
         >
           {trade.status === "active"
             ? "Record result"
             : trade.status === "planned"
               ? "Waiting for entry"
-              : "Outcome recorded"}
+              : "Review result"}
         </button>
       </div>
     </div>

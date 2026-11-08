@@ -58,6 +58,18 @@ function localSet(key: string, value: string): void {
   }
 }
 
+function localGet(key: string): string | null {
+  try {
+    return typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+
+function pendingCacheKey(userId: string, name: string): string {
+  return `pending:${accountCacheKey(userId, name)}`;
+}
+
 function localRemove(key: string): void {
   try {
     if (typeof localStorage !== "undefined") localStorage.removeItem(key);
@@ -79,6 +91,8 @@ function schedule(name: string, delay: number): void {
 function queueSave(name: string, value: string): void {
   const userId = requireUser();
 
+  // Keep unacknowledged writes across reloads and Android tab suspension.
+  localSet(pendingCacheKey(userId, name), value);
   pending.set(name, {
     userId,
     generation,
@@ -135,6 +149,10 @@ async function performFlushKey(name: string): Promise<void> {
     );
 
     if (error) throw error;
+
+    // An older request must never erase a newer pending local write.
+    const outboxKey = pendingCacheKey(item.userId, name);
+    if (localGet(outboxKey) === item.value) localRemove(outboxKey);
   } catch (error) {
     failedSaveCount++;
     console.error("[supabaseStorage] save failed:", name, error);
@@ -209,6 +227,15 @@ export const supabaseStorage: StateStorage = {
       throw new Error("Storage account changed during load");
     }
 
+    // Recover only this authenticated account's explicitly pending writes.
+    // A normal cache must never override fresh cloud state or bypass a failed read.
+    const unsaved = localGet(pendingCacheKey(userId, name));
+    if (unsaved !== null) {
+      queueSave(name, unsaved);
+      localSet(accountCacheKey(userId, name), unsaved);
+      return unsaved;
+    }
+
     if (!data) return null;
 
     const value = data.value as string;
@@ -228,6 +255,7 @@ export const supabaseStorage: StateStorage = {
     const requestGeneration = generation;
 
     localRemove(accountCacheKey(userId, name));
+    localRemove(pendingCacheKey(userId, name));
 
     pending.delete(name);
     const timer = timers.get(name);

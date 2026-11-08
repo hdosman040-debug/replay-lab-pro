@@ -42,10 +42,8 @@ export function useTradeActivation(
             return;
           }
 
-          useSessionStore.getState().setTrade({
-            ...latest,
-            status: "active",
-            activatedAt,
+          useSessionStore.getState().patchSession(session.id, {
+            trade: { ...latest, status: "active", activatedAt },
           });
         } catch (error) {
           console.error("[Trade Activation] FAILED:", error);

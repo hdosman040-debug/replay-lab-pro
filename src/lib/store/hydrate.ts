@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { getStorageUser, supabaseStorage } from "./supabaseStorage";
 import { useJournalStore } from "./journalStore";
-import { useSessionStore } from "./sessionStore";
+import { recoverClosedTrades, useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
 
 let hydratedUser: string | null = null;
@@ -35,6 +35,9 @@ async function hydrateForUser(userId: string): Promise<void> {
   if (getStorageUser() !== userId) {
     throw new Error("Account changed during hydration");
   }
+
+  // Recover outcomes left in saved sessions by versions that never journaled auto-closes.
+  recoverClosedTrades();
 
   hydratedUser = userId;
 }

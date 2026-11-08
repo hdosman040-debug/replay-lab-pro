@@ -90,6 +90,9 @@ export interface TradePlan {
   maxFavorableR?: number;
   maxAdverseR?: number;
 
+  /** Journal identity also prevents recovery from restoring an intentionally deleted record. */
+  journalRecordId?: string;
+
   /** Immutable chart image captured before replay continues. */
   beforeSnapshotId?: string;
 
@@ -285,7 +288,7 @@ export function rewindTrade(trade: TradePlan | null, t: number): TradePlan | nul
   if (closureVisibleAt !== undefined && closureVisibleAt > t) {
     const {
       closedAt, resolvedAt, observed, result, exitPrice, resultR,
-      maxFavorableR, maxAdverseR, afterSnapshotId, ...rest
+      maxFavorableR, maxAdverseR, afterSnapshotId, journalRecordId, ...rest
     } = trade;
     if (rest.activatedAt !== undefined && rest.activatedAt <= t) {
       return { ...rest, status: "active" };
