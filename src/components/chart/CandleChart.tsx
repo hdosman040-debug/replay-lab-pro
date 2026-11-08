@@ -49,8 +49,6 @@ export interface CandleChartHandle {
  * Tuning knobs
  * ------------------------------------------------------------------ */
 const PRICE_DECIMALS = 1;
-/** true = one-finger vertical drag pans price (TradingView). false = MT5-style, price only via axis. */
-const TOUCH_PRICE_PAN = false;
 const MIN_BAR_SPACING = 0.5;
 const MAX_BAR_SPACING = 40;
 /** frames the geometry loop keeps polling after the last change before it sleeps */
@@ -163,6 +161,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
   }, []);
   const enableAuto = useCallback(() => {
     chartRef.current?.priceScale("right").applyOptions({ autoScale: true });
+    dirtyRef.current = true;
     pumpRef.current();
   }, []);
 
@@ -275,13 +274,13 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
         vertLine: { color: cross, width: 1, style: LineStyle.Dashed, labelBackgroundColor: surface3 },
         horzLine: { color: cross, width: 1, style: LineStyle.Dashed, labelBackgroundColor: surface3 },
       },
-      // long-press shows the crosshair and keeps it until the next tap (MT5 / TradingView mobile)
-      trackingMode: { exitMode: TrackingModeExitMode.OnNextTap },
+      // Release crosshair tracking with the finger so the next swipe pans again.
+      trackingMode: { exitMode: TrackingModeExitMode.OnTouchEnd },
       handleScroll: {
         mouseWheel: true,
         pressedMouseMove: true,
         horzTouchDrag: true,
-        vertTouchDrag: TOUCH_PRICE_PAN,
+        vertTouchDrag: true,
       },
       handleScale: {
         axisPressedMouseMove: { time: true, price: true },
@@ -372,7 +371,10 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     });
     chart.timeScale().subscribeSizeChange(pump);
     chart.subscribeClick(() => cbRef.current.onClickEmpty?.());
+    let touchPanStart: { id: number; x: number; y: number } | null = null;
     chart.subscribeCrosshairMove((p: MouseEventParams<Time>) => {
+      // A long press starts crosshair inspection, rather than a price pan.
+      if (p.point && p.sourceEvent) touchPanStart = null;
       const cb = cbRef.current.onCrosshairPrice;
       if (!p.point || p.time === undefined) {
         cb?.(null);
@@ -383,6 +385,39 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
 
     const ro = new ResizeObserver(pump);
     ro.observe(el);
+
+    // Native price panning only works with auto-scale off. Freeze the current
+    // scale just before a real one-finger drag reaches the chart's handler.
+    // Taps, long presses, axis gestures and overlay edits keep their own behavior.
+    const resetTouchPan = () => {
+      touchPanStart = null;
+    };
+    const onTouchPanStart = (event: TouchEvent) => {
+      resetTouchPan();
+      const touch = event.touches[0];
+      if (event.touches.length !== 1 || !touch) return;
+      const rect = el.getBoundingClientRect();
+      const pane = chart.paneSize();
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      if (x < 0 || x >= pane.width || y < 0 || y >= pane.height) return;
+      touchPanStart = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
+    };
+    const onTouchPanMove = (event: TouchEvent) => {
+      const start = touchPanStart;
+      const touch = event.touches[0];
+      if (!start || event.touches.length !== 1 || !touch || touch.identifier !== start.id) return;
+      // Match the native chart's 5px Manhattan threshold, including diagonals.
+      if (Math.abs(touch.clientX - start.x) + Math.abs(touch.clientY - start.y) < 5) return;
+      resetTouchPan();
+      chart.priceScale("right").setAutoScale(false);
+      dirtyRef.current = true;
+      pump();
+    };
+    el.addEventListener("touchstart", onTouchPanStart, { capture: true, passive: true });
+    el.addEventListener("touchmove", onTouchPanMove, { capture: true, passive: true });
+    el.addEventListener("touchend", resetTouchPan, { capture: true, passive: true });
+    el.addEventListener("touchcancel", resetTouchPan, { capture: true, passive: true });
 
     // Lightweight Charts' native pinch gesture scales the time axis. Add a
     // vertical pinch scale for the price axis while leaving native X zoom on.
@@ -457,6 +492,10 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     return () => {
       disposed = true;
       if (raf) cancelAnimationFrame(raf);
+      el.removeEventListener("touchstart", onTouchPanStart, true);
+      el.removeEventListener("touchmove", onTouchPanMove, true);
+      el.removeEventListener("touchend", resetTouchPan, true);
+      el.removeEventListener("touchcancel", resetTouchPan, true);
       root.removeEventListener("touchstart", onPricePinchStart, true);
       root.removeEventListener("touchmove", onPricePinchMove, true);
       root.removeEventListener("touchend", onPricePinchEnd, true);

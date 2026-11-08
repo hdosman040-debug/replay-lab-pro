@@ -27,9 +27,9 @@ Analyze → Mark liquidity → Identify POI → Observe sweep → Identify displ
 ### Chart and drawings
 - Built on [lightweight-charts](https://github.com/tradingview/lightweight-charts) with a custom drawing overlay.
 - **MT5-style touch navigation:**
-  - Drag horizontally to pan time and pinch to zoom.
-  - Drag the price axis to scale price. Double-click an axis to reset it. One-finger vertical drag deliberately does not pan price.
-  - Long-press shows the crosshair, and it stays until your next tap.
+  - Drag with one finger in any direction to pan time and price; pinch to zoom.
+  - A chart drag switches price to manual scale. Tap **A** to restore auto-scale. Drag the price axis to scale price, or double-click an axis to reset it.
+  - Long-press shows the crosshair until you lift your finger; the next swipe pans normally.
   - A **»** button jumps back to the latest candle when you have scrolled away, and an **A** button turns price auto-scale back on after you have scaled manually.
 - OHLC legend with candle change and percent, plus day separators labelled with weekday and date in your session timezone. Session bands are shaded from session high to low and stop at the last revealed candle.
 - Manual tools, grouped as:
@@ -156,6 +156,8 @@ npx vitest
 ```
 
 The replay engine tests (`engine.test.ts`) and the time helper tests are self-contained. The diagnostic and integration tests (`supabaseProvider.*`, `supabaseStorage.inspect`, `check-apr13*`, `supabase.integration`) read the live Supabase bucket, so they need valid env vars and the data uploaded.
+
+Browser touch regressions use the real chart and drawing overlay with fixed candles: `npx playwright test --config=e2e/chart-touch.config.ts` (requires Playwright Chromium).
 
 ### Deploy
 
