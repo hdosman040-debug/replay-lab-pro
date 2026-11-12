@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
+import { SaveStatusNotice } from "./SaveStatusNotice";
 import {
   Activity,
   BarChart3,
@@ -107,6 +108,7 @@ export function AppShell({
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <SaveStatusNotice />
         <div className="min-h-0 flex-1 overflow-hidden">
           {children}
         </div>

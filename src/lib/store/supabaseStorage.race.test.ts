@@ -1,69 +1,29 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-  from: vi.fn(),
-}));
-
-vi.mock("@/lib/supabaseClient", () => ({
-  supabase: { from: mocks.from },
-}));
-
-import {
-  flushPendingSaves,
-  setStorageUser,
-  supabaseStorage,
-} from "./supabaseStorage";
-
-const KEY = "ict-terminal.journal.v1";
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { client, deferred, KEY, server } from "./versionedStorage.testSupport";
+beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
-  setStorageUser(null);
   vi.clearAllTimers();
   vi.useRealTimers();
-  mocks.from.mockReset();
 });
-
 describe("journal save ordering", () => {
-  it("must not allow an older save to overwrite a newer save", async () => {
-    vi.useFakeTimers();
-
-    let releaseOld!: () => void;
-    let storedValue = "";
-
-    const upsert = vi.fn((row: { value: string }) => {
-      if (row.value === "old") {
-        return new Promise<{ error: null }>((resolve) => {
-          releaseOld = () => {
-            storedValue = row.value;
-            resolve({ error: null });
-          };
-        });
-      }
-
-      storedValue = row.value;
-      return Promise.resolve({ error: null });
+  it("never lets an older in-flight save overwrite a newer draft", async () => {
+    const s = server(),
+      c = await client(s),
+      wait = deferred();
+    s.backend.write.mockImplementationOnce(async (...args) => {
+      await wait.promise;
+      return s.actualWrite(...args);
     });
-
-    mocks.from.mockReturnValue({ upsert });
-
-    setStorageUser("race-test-user");
-
-    supabaseStorage.setItem(KEY, "old");
-    const firstSave = flushPendingSaves();
-
-    expect(upsert).toHaveBeenCalledTimes(1);
-
-    supabaseStorage.setItem(KEY, "new");
-    const secondSave = flushPendingSaves();
-
-    expect(upsert).toHaveBeenCalledTimes(1);
-
-    releaseOld();
-
-    await firstSave;
-    await secondSave;
-
-    expect(upsert).toHaveBeenCalledTimes(2);
-    expect(storedValue).toBe("new");
+    c.supabaseStorage.setItem(KEY, "old");
+    const first = c.flushPendingSaves();
+    c.supabaseStorage.setItem(KEY, "new");
+    const second = c.flushPendingSaves();
+    expect(s.backend.write).toHaveBeenCalledTimes(1);
+    wait.resolve();
+    await Promise.all([first, second]);
+    expect(s.value()).toBe("new");
+    expect(s.revision()).toBe(3);
+    expect(s.backend.write).toHaveBeenLastCalledWith("user-a", KEY, "new", 2);
+    expect(c.hasUnsavedChanges()).toBe(false);
   });
 });

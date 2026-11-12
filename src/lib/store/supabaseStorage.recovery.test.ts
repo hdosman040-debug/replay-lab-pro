@@ -1,120 +1,141 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({ from: vi.fn() }));
-vi.mock("@/lib/supabaseClient", () => ({ supabase: { from: mocks.from } }));
-
-const KEY = "ict-terminal.journal.v1";
-let stored = "cloud-before-trade";
-let readError: unknown = null;
-let storage: typeof import("./supabaseStorage");
-const cache = new Map<string, string>();
-const upsert = vi.fn(async (row: { value: string }) => {
-  stored = row.value;
-  return { error: null };
-});
-
-async function reload(userId = "user-a") {
-  vi.clearAllTimers();
-  vi.resetModules();
-  storage = await import("./supabaseStorage");
-  storage.setStorageUser(userId);
-}
-
-beforeEach(async () => {
-  vi.useFakeTimers();
-  cache.clear();
-  stored = "cloud-before-trade";
-  readError = null;
-  upsert.mockClear();
-  vi.stubGlobal("localStorage", {
-    getItem: (key: string) => cache.get(key) ?? null,
-    setItem: (key: string, value: string) => cache.set(key, value),
-    removeItem: (key: string) => cache.delete(key),
-  });
-  mocks.from.mockImplementation(() => {
-    const query = {
-      eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn(async () => ({ data: { value: stored }, error: readError })),
-    };
-    return { select: vi.fn(() => query), upsert };
-  });
-  await reload();
-});
-
+import { accountCacheKey } from "./accountKeys";
+import {
+  client,
+  deferred,
+  drafts,
+  KEY,
+  MemoryStorage,
+  server,
+} from "./versionedStorage.testSupport";
+beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
-  storage.setStorageUser(null);
   vi.clearAllTimers();
   vi.useRealTimers();
-  vi.unstubAllGlobals();
 });
-
-describe("pending journal save recovery", () => {
-  it("recovers a trade after a reload before the delayed cloud save", async () => {
-    storage.supabaseStorage.setItem(KEY, "journal-with-new-trade");
-    await reload();
-
-    await expect(storage.supabaseStorage.getItem(KEY)).resolves.toBe("journal-with-new-trade");
-    await storage.flushAndVerifySaves();
-    expect(stored).toBe("journal-with-new-trade");
+describe("pending save recovery", () => {
+  it("recovers an unsent trade after a reload", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      old = await client(s, cache);
+    old.supabaseStorage.setItem(KEY, "new-trade");
+    old.setStorageUser(null);
+    const fresh = await client(s, cache);
+    expect(await fresh.supabaseStorage.getItem(KEY)).toBe("new-trade");
+    await fresh.flushAndVerifySaves();
+    expect(s.value()).toBe("new-trade");
+    expect(drafts(cache)).toHaveLength(0);
   });
-
-  it("never restores another account's pending journal", async () => {
-    storage.supabaseStorage.setItem(KEY, "private-user-a");
-    await reload("user-b");
-
-    await expect(storage.supabaseStorage.getItem(KEY)).resolves.toBe("cloud-before-trade");
-    await storage.flushPendingSaves();
-    expect(upsert).not.toHaveBeenCalled();
+  it("does not recover another account's private changes", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      old = await client(s, cache);
+    old.supabaseStorage.setItem(KEY, "private-a");
+    old.setStorageUser(null);
+    const fresh = await client(s, cache, "user-b");
+    expect(await fresh.supabaseStorage.getItem(KEY)).toBe("private-b");
+    expect(fresh.exportUnsavedChanges()).not.toContain("private-a");
   });
-
-  it("retries a failed upload after reloading without losing the trade", async () => {
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    upsert.mockRejectedValueOnce(new Error("Connection interrupted"));
-    storage.supabaseStorage.setItem(KEY, "trade-during-failed-upload");
-    await expect(storage.flushAndVerifySaves()).rejects.toThrow("could not be saved");
-    log.mockRestore();
-
-    await reload();
-    await expect(storage.supabaseStorage.getItem(KEY)).resolves.toBe("trade-during-failed-upload");
-    await storage.flushAndVerifySaves();
-    expect(stored).toBe("trade-during-failed-upload");
+  it("retries an interrupted upload after a reload", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      old = await client(s, cache);
+    s.backend.write.mockRejectedValueOnce(new Error("offline"));
+    old.supabaseStorage.setItem(KEY, "new-trade");
+    await expect(old.flushAndVerifySaves()).rejects.toThrow("could not be saved");
+    old.setStorageUser(null);
+    const fresh = await client(s, cache);
+    await fresh.flushAndVerifySaves();
+    expect(s.value()).toBe("new-trade");
   });
-
-  it("uses fresh cloud data once a pending save was acknowledged", async () => {
-    storage.supabaseStorage.setItem(KEY, "saved-trade");
-    await storage.flushAndVerifySaves();
-    stored = "newer-cloud-review";
-    await reload();
-
-    await expect(storage.supabaseStorage.getItem(KEY)).resolves.toBe("newer-cloud-review");
-    await storage.flushPendingSaves();
-    expect(upsert).toHaveBeenCalledTimes(1);
+  it("uses the cloud after the pending save was acknowledged", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      old = await client(s, cache);
+    old.supabaseStorage.setItem(KEY, "saved");
+    await old.flushAndVerifySaves();
+    old.setStorageUser(null);
+    await s.actualWrite("user-a", KEY, "newer-cloud", 2);
+    const fresh = await client(s, cache);
+    expect(await fresh.supabaseStorage.getItem(KEY)).toBe("newer-cloud");
+    expect(drafts(cache)).toHaveLength(0);
   });
-
-  it("still requires a successful authenticated cloud read before recovery", async () => {
-    storage.supabaseStorage.setItem(KEY, "local-trade");
-    await reload();
-    readError = { message: "Permission denied" };
-
-    await expect(storage.supabaseStorage.getItem(KEY)).rejects.toEqual(readError);
-    expect(upsert).not.toHaveBeenCalled();
+  it("requires a successful cloud read before recovering anything", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      old = await client(s, cache);
+    old.supabaseStorage.setItem(KEY, "pending");
+    old.setStorageUser(null);
+    s.backend.read.mockRejectedValueOnce(new Error("not authenticated"));
+    await expect(client(s, cache)).rejects.toThrow("not authenticated");
+    expect(s.backend.write).not.toHaveBeenCalled();
+    expect(drafts(cache)).toHaveLength(1);
   });
-
-  it("retains the pending value when an older in-flight save finishes", async () => {
-    let finishOld!: (value: { error: null }) => void;
-    upsert.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finishOld = resolve;
-        }),
-    );
-    storage.supabaseStorage.setItem(KEY, "old");
-    const saving = storage.flushPendingSaves();
-    storage.supabaseStorage.setItem(KEY, "new-trade");
-    finishOld({ error: null });
+  it("preserves newer edits when an older request finishes", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      old = await client(s, cache),
+      wait = deferred();
+    s.backend.write.mockImplementationOnce(async (...args) => {
+      await wait.promise;
+      return s.actualWrite(...args);
+    });
+    old.supabaseStorage.setItem(KEY, "A");
+    const saving = old.flushPendingSaves();
+    old.supabaseStorage.setItem(KEY, "B");
+    wait.resolve();
     await saving;
-    await reload();
-
-    await expect(storage.supabaseStorage.getItem(KEY)).resolves.toBe("new-trade");
+    old.setStorageUser(null);
+    const fresh = await client(s, cache);
+    expect(await fresh.supabaseStorage.getItem(KEY)).toBe("B");
+    await fresh.flushAndVerifySaves();
+    expect(s.value()).toBe("B");
+  });
+  it("recovers after the server commits but its acknowledgement is lost", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      old = await client(s, cache);
+    s.backend.write.mockImplementationOnce(async (...args) => {
+      await s.actualWrite(...args);
+      throw new Error("lost reply");
+    });
+    old.supabaseStorage.setItem(KEY, "saved");
+    await expect(old.flushAndVerifySaves()).rejects.toThrow("could not be saved");
+    old.setStorageUser(null);
+    const fresh = await client(s, cache);
+    expect(await fresh.supabaseStorage.getItem(KEY)).toBe("saved");
+    expect(fresh.getSaveStatus()).toBe("saved");
+    expect(drafts(cache)).toHaveLength(0);
+  });
+  it("recovers a newer draft after an earlier commit lost its reply", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      old = await client(s, cache),
+      wait = deferred();
+    s.backend.write.mockImplementationOnce(async (...args) => {
+      await wait.promise;
+      await s.actualWrite(...args);
+      throw new Error("lost reply");
+    });
+    old.supabaseStorage.setItem(KEY, "A");
+    const saving = old.flushPendingSaves();
+    old.supabaseStorage.setItem(KEY, "B");
+    wait.resolve();
+    await saving;
+    old.setStorageUser(null);
+    const fresh = await client(s, cache);
+    expect(await fresh.supabaseStorage.getItem(KEY)).toBe("B");
+    await fresh.flushAndVerifySaves();
+    expect(s.value()).toBe("B");
+  });
+  it("preserves old-format pending data without automatically overwriting the cloud", async () => {
+    const s = server(),
+      cache = new MemoryStorage();
+    cache.setItem(`pending:${accountCacheKey("user-a", KEY)}`, "old-unversioned-trade");
+    const fresh = await client(s, cache);
+    await fresh.flushPendingSaves();
+    expect(fresh.getSaveStatus()).toBe("conflict");
+    expect(s.value()).toBe("initial");
+    expect(fresh.exportUnsavedChanges()).toContain("old-unversioned-trade");
   });
 });

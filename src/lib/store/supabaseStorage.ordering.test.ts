@@ -1,89 +1,28 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-  from: vi.fn(),
-}));
-
-vi.mock("@/lib/supabaseClient", () => ({
-  supabase: { from: mocks.from },
-}));
-
-import {
-  flushPendingSaves,
-  setStorageUser,
-  supabaseStorage,
-} from "./supabaseStorage";
-
-const KEY = "ict-terminal.journal.v1";
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { client, deferred, KEY, server } from "./versionedStorage.testSupport";
+beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
-  setStorageUser(null);
+  vi.clearAllTimers();
   vi.useRealTimers();
-  mocks.from.mockReset();
 });
-
 describe("journal operation ordering", () => {
   it("preserves the newest save after save-delete-save", async () => {
-    vi.useFakeTimers();
-
-    let releaseFirst!: () => void;
-    let stored: string | null = null;
-    const operations: string[] = [];
-
-    const upsert = vi.fn((row: { value: string }) => {
-      if (row.value === "A") {
-        operations.push("save-A-start");
-
-        return new Promise<{ error: null }>((resolve) => {
-          releaseFirst = () => {
-            stored = "A";
-            operations.push("save-A-end");
-            resolve({ error: null });
-          };
-        });
-      }
-
-      stored = row.value;
-      operations.push("save-B");
-      return Promise.resolve({ error: null });
+    const s = server(),
+      c = await client(s),
+      wait = deferred();
+    s.backend.write.mockImplementationOnce(async (...args) => {
+      await wait.promise;
+      return s.actualWrite(...args);
     });
-
-    const deleteQuery = {
-      eq: vi.fn().mockReturnThis(),
-      then: (
-        resolve: (value: { error: null }) => unknown,
-      ) => {
-        stored = null;
-        operations.push("delete");
-        return Promise.resolve(resolve({ error: null }));
-      },
-    };
-
-    mocks.from.mockReturnValue({
-      upsert,
-      delete: vi.fn().mockReturnValue(deleteQuery),
-    });
-
-    setStorageUser("ordering-test-user");
-
-    supabaseStorage.setItem(KEY, "A");
-    const first = flushPendingSaves();
-
-    const deleting = supabaseStorage.removeItem(KEY);
-
-    supabaseStorage.setItem(KEY, "B");
-    const second = flushPendingSaves();
-
-    releaseFirst();
-
+    c.supabaseStorage.setItem(KEY, "A");
+    const first = c.flushPendingSaves();
+    const deleting = c.supabaseStorage.removeItem(KEY);
+    c.supabaseStorage.setItem(KEY, "B");
+    const second = c.flushPendingSaves();
+    wait.resolve();
     await Promise.all([first, deleting, second]);
-
-    expect(stored).toBe("B");
-    expect(operations).toEqual([
-      "save-A-start",
-      "save-A-end",
-      "delete",
-      "save-B",
-    ]);
+    expect(s.backend.write.mock.calls.map((call) => call[2])).toEqual(["A", null, "B"]);
+    expect(s.value()).toBe("B");
+    expect(s.revision()).toBe(4);
   });
 });
