@@ -1,8 +1,10 @@
-name: Authentication regression
+name: Authentication and saved-state regression
 on:
   pull_request:
     paths:
       - 'src/lib/auth/**'
+      - 'src/lib/store/**'
+      - 'src/components/layout/**'
       - 'src/lib/supabaseClient.ts'
       - 'src/routes/login.tsx'
       - 'src/routes/__root.tsx'
@@ -25,6 +27,8 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run test:auth
+      - run: npx vitest run src/lib/store src/components/workspace/tradeRecording.test.ts
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - run: npx playwright test e2e/auth.spec.ts
+      - run: npx playwright test --config e2e/save-conflicts.config.ts
       - run: npm run build

@@ -1,79 +1,35 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-  from: vi.fn(),
-}));
-
-vi.mock("@/lib/supabaseClient", () => ({
-  supabase: { from: mocks.from },
-}));
-
-import {
-  flushPendingSaves,
-  setStorageUser,
-  supabaseStorage,
-} from "./supabaseStorage";
-
-const KEY = "ict-terminal.journal.v1";
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { client, deferred, KEY, server } from "./versionedStorage.testSupport";
+beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
-  setStorageUser(null);
+  vi.clearAllTimers();
   vi.useRealTimers();
-  mocks.from.mockReset();
 });
-
 describe("journal deletion ordering", () => {
-  it("must not recreate a record after deletion", async () => {
-    vi.useFakeTimers();
-
-    let releaseSave!: () => void;
-    let storedValue: string | null = null;
-
-    const upsert = vi.fn((row: { value: string }) =>
-      new Promise<{ error: null }>((resolve) => {
-        releaseSave = () => {
-          storedValue = row.value;
-          resolve({ error: null });
-        };
-      }),
-    );
-
-    const deleteQuery = {
-      eq: vi.fn().mockReturnThis(),
-    };
-
-    const deleteOperation = {
-      then: (
-        resolve: (value: { error: null }) => unknown,
-      ) => {
-        storedValue = null;
-        return Promise.resolve(resolve({ error: null }));
-      },
-    };
-
-    deleteQuery.eq
-      .mockReturnValueOnce(deleteQuery)
-      .mockReturnValueOnce(deleteOperation);
-
-    mocks.from.mockReturnValue({
-      upsert,
-      delete: vi.fn().mockReturnValue(deleteQuery),
+  it("does not recreate data after a deletion", async () => {
+    const s = server(),
+      c = await client(s),
+      wait = deferred();
+    s.backend.write.mockImplementationOnce(async (...args) => {
+      await wait.promise;
+      return s.actualWrite(...args);
     });
-
-    setStorageUser("delete-race-user");
-
-    supabaseStorage.setItem(KEY, "old");
-    const saving = flushPendingSaves();
-
-    expect(upsert).toHaveBeenCalledTimes(1);
-
-    const deleting = supabaseStorage.removeItem(KEY);
-
-    releaseSave();
-
-    await saving;
-    await deleting;
-
-    expect(storedValue).toBeNull();
+    c.supabaseStorage.setItem(KEY, "old");
+    const saving = c.flushPendingSaves();
+    const deleting = c.supabaseStorage.removeItem(KEY);
+    wait.resolve();
+    await Promise.all([saving, deleting]);
+    expect(s.value()).toBeNull();
+    expect(s.revision()).toBe(3);
+  });
+  it("rejects a stale deletion from another device", async () => {
+    const s = server(),
+      a = await client(s),
+      b = await client(s);
+    a.supabaseStorage.setItem(KEY, "new-cloud");
+    await a.flushAndVerifySaves();
+    await expect(b.supabaseStorage.removeItem(KEY)).rejects.toThrow("Deletion could not be saved");
+    expect(s.value()).toBe("new-cloud");
+    expect(b.getSaveStatus()).toBe("conflict");
   });
 });

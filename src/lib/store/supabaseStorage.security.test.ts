@@ -1,151 +1,78 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-  from: vi.fn(),
-}));
-
-vi.mock("@/lib/supabaseClient", () => ({
-  supabase: { from: mocks.from },
-}));
-
-import {
-  getStorageUser,
-  setStorageUser,
-  supabaseStorage,
-  flushPendingSaves,
-} from "./supabaseStorage";
-
-const KEY = "ict-terminal.journal.v1";
-
-function mockRead(value: string | null, error: unknown = null) {
-  const maybeSingle = vi.fn().mockResolvedValue({
-    data: value === null ? null : { value },
-    error,
-  });
-  const eq = vi.fn().mockReturnThis();
-  const select = vi.fn().mockReturnValue({ eq, maybeSingle });
-  mocks.from.mockReturnValue({ select });
-  return { eq, maybeSingle };
-}
-
-beforeEach(() => {
-  setStorageUser(null);
-  mocks.from.mockReset();
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createVersionedStorage } from "./versionedStorage";
+import { client, deferred, KEY, MemoryStorage, server } from "./versionedStorage.testSupport";
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
 });
-
-describe("authenticated journal storage", () => {
+describe("authenticated versioned storage", () => {
   it("requires an authenticated account", async () => {
-    await expect(supabaseStorage.getItem(KEY)).rejects.toThrow(
-      "Authenticated user required",
-    );
-    expect(() => supabaseStorage.setItem(KEY, "{}")).toThrow(
-      "Authenticated user required",
-    );
-    expect(mocks.from).not.toHaveBeenCalled();
+    const s = server(),
+      c = createVersionedStorage(s.backend, () => new MemoryStorage());
+    await expect(c.supabaseStorage.getItem(KEY)).rejects.toThrow("Authenticated user required");
+    expect(() => c.supabaseStorage.setItem(KEY, "private")).toThrow("Authenticated user required");
+    expect(s.backend.read).not.toHaveBeenCalled();
   });
-
-  it("reads data under the current user ID", async () => {
-    setStorageUser("user-a");
-    const { eq } = mockRead('{"records":[]}');
-
-    await expect(supabaseStorage.getItem(KEY)).resolves.toBe(
-      '{"records":[]}',
-    );
-    expect(eq).toHaveBeenCalledWith("user_id", "user-a");
-    expect(eq).toHaveBeenCalledWith("key", KEY);
+  it("reads only the current account", async () => {
+    const s = server(),
+      c = await client(s);
+    c.setStorageUser("user-b");
+    expect(await c.supabaseStorage.getItem(KEY)).toBe("private-b");
+    expect(s.backend.read).toHaveBeenLastCalledWith("user-b", KEY);
   });
-
-  it("rejects cloud failures rather than restoring old data", async () => {
-    setStorageUser("user-a");
-    mockRead(null, { message: "Permission denied" });
-
-    await expect(supabaseStorage.getItem(KEY)).rejects.toEqual({
-      message: "Permission denied",
-    });
+  it("rejects cloud failures without returning cached data", async () => {
+    const s = server(),
+      c = await client(s);
+    s.backend.read.mockRejectedValueOnce(new Error("Permission denied"));
+    await expect(c.supabaseStorage.getItem(KEY)).rejects.toThrow("Permission denied");
   });
-
   it("rejects a read that finishes after an account switch", async () => {
-    let resolveRead!: (value: unknown) => void;
-    const maybeSingle = vi.fn().mockReturnValue(
-      new Promise((resolve) => { resolveRead = resolve; }),
-    );
-    const eq = vi.fn().mockReturnThis();
-    mocks.from.mockReturnValue({
-      select: vi.fn().mockReturnValue({ eq, maybeSingle }),
+    const s = server(),
+      c = await client(s),
+      wait = deferred<{ value: string; revision: number }>();
+    s.backend.read.mockReturnValueOnce(wait.promise);
+    const read = c.supabaseStorage.getItem(KEY);
+    c.setStorageUser("user-b");
+    wait.resolve({ value: "private-a", revision: 1 });
+    await expect(read).rejects.toThrow("account changed");
+  });
+  it("does not transfer queued writes to a new account", async () => {
+    const s = server(),
+      cache = new MemoryStorage(),
+      c = await client(s, cache);
+    c.supabaseStorage.setItem(KEY, "private-a");
+    c.setStorageUser("user-b");
+    await c.flushPendingSaves();
+    expect(s.backend.write).not.toHaveBeenCalled();
+    expect(c.exportUnsavedChanges()).not.toContain("private-a");
+  });
+  it("keeps an in-flight write bound to its original account", async () => {
+    const s = server(),
+      c = await client(s),
+      wait = deferred();
+    s.backend.write.mockImplementationOnce(async (...args) => {
+      await wait.promise;
+      return s.actualWrite(...args);
     });
-
-    setStorageUser("user-a");
-    const request = supabaseStorage.getItem(KEY);
-
-    setStorageUser("user-b");
-    resolveRead({ data: { value: "private-a" }, error: null });
-
-    await expect(request).rejects.toThrow("account changed");
+    c.supabaseStorage.setItem(KEY, "private-a");
+    const flush = c.flushPendingSaves();
+    c.setStorageUser("user-b");
+    await c.supabaseStorage.getItem(KEY);
+    wait.resolve();
+    await flush;
+    expect(s.backend.write).toHaveBeenCalledWith("user-a", KEY, "private-a", 1);
+    expect(c.getStorageUser()).toBe("user-b");
+    expect(await c.supabaseStorage.getItem(KEY)).toBe("private-b");
   });
-
-  it("does not transfer queued writes to another user", async () => {
-    const upsert = vi.fn().mockResolvedValue({ error: null });
-    mocks.from.mockReturnValue({ upsert });
-
-    setStorageUser("user-a");
-    supabaseStorage.setItem(KEY, "private-a");
-
-    setStorageUser("user-b");
-    await flushPendingSaves();
-
-    expect(upsert).not.toHaveBeenCalled();
-    expect(getStorageUser()).toBe("user-b");
-  });
-
-  it("keeps an in-flight write bound to its original user", async () => {
-    let finishWrite!: (value: { error: null }) => void;
-
-    const upsert = vi.fn().mockImplementation(
-      () => new Promise((resolve) => {
-        finishWrite = resolve;
-      }),
-    );
-
-    mocks.from.mockReturnValue({ upsert });
-
-    setStorageUser("user-a");
-    supabaseStorage.setItem(KEY, "private-a");
-
-    const write = flushPendingSaves();
-
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user_id: "user-a",
-        value: "private-a",
-      }),
-      { onConflict: "user_id,key" },
-    );
-
-    setStorageUser(null);
-    setStorageUser("user-b");
-
-    finishWrite({ error: null });
-    await write;
-
-    expect(upsert).toHaveBeenCalledTimes(1);
-    expect(getStorageUser()).toBe("user-b");
-  });
-
-  it("writes only to the account that queued the data", async () => {
-    const upsert = vi.fn().mockResolvedValue({ error: null });
-    mocks.from.mockReturnValue({ upsert });
-
-    setStorageUser("user-a");
-    supabaseStorage.setItem(KEY, "private-a");
-    await flushPendingSaves();
-
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user_id: "user-a",
-        key: KEY,
-        value: "private-a",
-      }),
-      { onConflict: "user_id,key" },
-    );
+  it("never saves a state that was not loaded first", async () => {
+    const s = server(),
+      c = createVersionedStorage(s.backend, () => new MemoryStorage());
+    c.setStorageUser("user-a");
+    c.supabaseStorage.setItem(KEY, "unbased");
+    await c.flushPendingSaves();
+    expect(s.backend.write).not.toHaveBeenCalled();
+    expect(c.getSaveStatus()).toBe("conflict");
+    expect(c.exportUnsavedChanges()).toContain("unbased");
   });
 });
