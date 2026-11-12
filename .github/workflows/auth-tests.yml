@@ -5,6 +5,8 @@ on:
       - 'src/lib/auth/**'
       - 'src/lib/store/**'
       - 'src/components/layout/**'
+      - 'src/components/chart/**'
+      - 'src/routes/index.tsx'
       - 'src/lib/supabaseClient.ts'
       - 'src/routes/login.tsx'
       - 'src/routes/__root.tsx'
@@ -31,4 +33,5 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test e2e/auth.spec.ts
       - run: npx playwright test --config e2e/save-conflicts.config.ts
+      - run: npx playwright test --config e2e/chart-touch.config.ts
       - run: npm run build

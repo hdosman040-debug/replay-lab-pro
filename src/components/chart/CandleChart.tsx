@@ -36,6 +36,8 @@ interface Props {
   timezone: string;
   symbol?: string;
   timeframe?: string;
+  /** Changes for an explicit replay jump or session switch, never for a playback tick. */
+  viewportResetKey?: string;
   onClickEmpty?: () => void;
   onVisibleRangeChange?: (fromLogical: number) => void;
   onCrosshairPrice?: (price: number | null) => void;
@@ -131,6 +133,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     candles,
     barSeconds,
     timezone,
+    viewportResetKey,
     onClickEmpty,
     onVisibleRangeChange,
     onCrosshairPrice,
@@ -145,6 +148,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const prevRef = useRef<Candle[]>([]);
   const prevBarSecondsRef = useRef(barSeconds);
+  const prevViewportResetKeyRef = useRef(viewportResetKey);
   const candlesRef = useRef<Candle[]>(candles);
   candlesRef.current = candles;
   const pumpRef = useRef<() => void>(() => {});
@@ -159,7 +163,10 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
   tzRef.current = timezone;
 
   const goLatest = useCallback(() => {
+    chartRef.current?.priceScale("right").setAutoScale(true);
     chartRef.current?.timeScale().scrollToPosition(6, true);
+    dirtyRef.current = true;
+    pumpRef.current();
   }, []);
   const enableAuto = useCallback(() => {
     chartRef.current?.priceScale("right").applyOptions({ autoScale: true });
@@ -556,6 +563,12 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
       lastNow.time === prevLast.time;
 
     const jumpedBack = lastNow !== undefined && prevLast !== undefined && lastNow.time < prevLast.time;
+    const resetViewport =
+      prevViewportResetKeyRef.current !== viewportResetKey ||
+      prevBarSecondsRef.current !== barSeconds ||
+      prev.length === 0 ||
+      jumpedBack ||
+      (first !== undefined && prevLast !== undefined && first.time > prevLast.time);
 
     const sameHead =
       prev.length > 0 &&
@@ -566,6 +579,7 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     const grew = candles.length - prev.length;
     const mid = Math.min(prev.length, candles.length) >> 1;
     const tailOnly =
+      !resetViewport &&
       sameHead &&
       lastNow !== undefined &&
       prevLast !== undefined &&
@@ -580,7 +594,10 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
     } else {
       series.setData(candles.map(toBar));
 
-      if (prev.length === 0 || jumpedBack) {
+      if (resetViewport) {
+        // A manual price range belongs to the previous replay view. Keeping it
+        // after a date jump can put every new candle outside the visible prices.
+        chart.priceScale("right").setAutoScale(true);
         chart.timeScale().scrollToPosition(6, false);
       } else if (replayTrim) {
         if (!keepRange || keepRange.to >= prev.length - 1) {
@@ -607,10 +624,10 @@ export const CandleChart = forwardRef<CandleChartHandle, Props>(function CandleC
 
     prevRef.current = candles;
     prevBarSecondsRef.current = barSeconds;
+    prevViewportResetKeyRef.current = viewportResetKey;
     dirtyRef.current = true;
     pumpRef.current();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candles]);
+  }, [candles, barSeconds, viewportResetKey]);
 
   const coords = useMemo<CoordApi | null>(() => {
     const chart = chartRef.current;
