@@ -8,6 +8,30 @@ import { useSettingsStore } from "./settingsStore";
 let hydratedUser: string | null = null;
 let pendingHydration: Promise<void> | null = null;
 
+const HYDRATION_TIMEOUT_MS = 20_000;
+
+async function withHydrationTimeout<T>(operation: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                "Loading your saved workspace timed out. Check your internet connection and try again.",
+              ),
+            ),
+          HYDRATION_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function hydrateForUser(userId: string): Promise<void> {
   if (hydratedUser === userId) return;
 
@@ -17,20 +41,20 @@ async function hydrateForUser(userId: string): Promise<void> {
 
   // Verify both cloud reads explicitly. Zustand can otherwise swallow
   // storage errors and complete hydration with default empty state.
-  await Promise.all([
+  await withHydrationTimeout(Promise.all([
     supabaseStorage.getItem("ict-terminal.sessions.v1"),
     supabaseStorage.getItem("ict-terminal.journal.v1"),
-  ]);
+  ]));
 
   if (getStorageUser() !== userId) {
     throw new Error("Account changed during storage verification");
   }
 
-  await Promise.all([
+  await withHydrationTimeout(Promise.all([
     useSessionStore.persist.rehydrate(),
     useJournalStore.persist.rehydrate(),
     useSettingsStore.persist.rehydrate(),
-  ]);
+  ]));
 
   if (getStorageUser() !== userId) {
     throw new Error("Account changed during hydration");
