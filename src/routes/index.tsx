@@ -83,6 +83,7 @@ function Workspace() {
   const [newsOpen, setNewsOpen] = useState(false);
   const news = useNewsAlerts(session?.id ?? null, session?.currentTime ?? null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [chartNavigation, setChartNavigation] = useState(0);
   const panelOpenRef = useRef(panelOpen);
   panelOpenRef.current = panelOpen;
 
@@ -235,6 +236,7 @@ function Workspace() {
             barSeconds={TF_SECONDS[viewTf]}
             symbol={session.symbol}
             timeframe={viewTf}
+            viewportResetKey={`${session.id}:${session.symbol}:${chartNavigation}`}
             timezone={tz}
             reserveVerticalSpace={!!session.trade}
             onClickEmpty={() => ui.setSelectedDrawing(null)}
@@ -466,11 +468,13 @@ function Workspace() {
               onClose={() => ui.setSheet(null)}
               onJump={(t) => {
                 ui.setPlaying(false);
+                setChartNavigation((value) => value + 1);
                 store.patchActive({ currentTime: t });
                 ui.setSheet(null);
               }}
               onReset={() => {
                 ui.setPlaying(false);
+                setChartNavigation((value) => value + 1);
                 store.patchActive({ currentTime: session.startTime });
                 ui.setSheet(null);
               }}

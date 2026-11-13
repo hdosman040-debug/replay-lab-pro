@@ -99,4 +99,51 @@ test.describe("chart one-finger navigation", () => {
     await drag(cdp, { x: 120, y: 340 }, { x: 240, y: 340 });
     await expect.poll(async () => (await geometry(page)).from).toBeLessThan(before.from - 60);
   });
+
+  test("date jumps restore visible prices after manual panning", async ({ page }) => {
+    const cdp = await page.context().newCDPSession(page);
+    for (const [year, price] of [[2020, 29274], [2026, 51805]] as const) {
+      await drag(cdp, { x: 150, y: 210 }, { x: 150, y: 300 });
+      await expect(page.getByRole("button", { name: "Auto-scale price" })).toBeVisible();
+      await page.getByRole("button", { name: `Jump to ${year}`, exact: true }).tap();
+      await expect(page.getByRole("button", { name: "Auto-scale price" })).toHaveCount(0);
+      await expect.poll(async () => {
+        const g = await geometry(page);
+        return g.bottom < price && g.top > price;
+      }).toBe(true);
+      await expect(page.getByRole("button", { name: "Jump to latest candle" })).toHaveCount(0);
+    }
+  });
+
+  test("new sessions and timeframes reset the price scale even with unchanged candles", async ({ page }) => {
+    const cdp = await page.context().newCDPSession(page);
+    for (const name of ["Switch session", "Switch timeframe"]) {
+      await drag(cdp, { x: 150, y: 210 }, { x: 150, y: 300 });
+      await expect(page.getByRole("button", { name: "Auto-scale price" })).toBeVisible();
+      await page.getByRole("button", { name, exact: true }).tap();
+      await expect(page.getByRole("button", { name: "Auto-scale price" })).toHaveCount(0);
+    }
+  });
+
+  test("playback and history loading preserve manual price navigation", async ({ page }) => {
+    const cdp = await page.context().newCDPSession(page);
+    await drag(cdp, { x: 150, y: 210 }, { x: 150, y: 300 });
+    await expect(page.getByRole("button", { name: "Auto-scale price" })).toBeVisible();
+    const before = await geometry(page);
+    for (const name of ["Next candle", "Load older history"]) {
+      await page.getByRole("button", { name, exact: true }).tap();
+      await expect(page.getByRole("button", { name: "Auto-scale price" })).toBeVisible();
+      await expect.poll(async () => Math.abs((await geometry(page)).top - before.top)).toBeLessThan(0.01);
+      await expect.poll(async () => Math.abs((await geometry(page)).bottom - before.bottom)).toBeLessThan(0.01);
+    }
+  });
+
+  test("jumping to the latest candle restores both time and price visibility", async ({ page }) => {
+    const cdp = await page.context().newCDPSession(page);
+    await drag(cdp, { x: 150, y: 210 }, { x: 150, y: 300 });
+    await drag(cdp, { x: 120, y: 210 }, { x: 300, y: 210 });
+    await page.getByRole("button", { name: "Jump to latest candle" }).tap();
+    await expect(page.getByRole("button", { name: "Auto-scale price" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Jump to latest candle" })).toHaveCount(0);
+  });
 });
